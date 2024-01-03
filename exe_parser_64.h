@@ -14,6 +14,8 @@ class EXE_Parser64
     IMAGE_DOS_HEADER* dos_header;
     __IMAGE_NT_HEADERS64* nt_header;
     __IMAGE_DATA_DIRECTORY import_directory;
+    std::vector<__IMAGE_SECTION_HEADER*> sections;
+    std::map<__IMAGE_SECTION_HEADER*, std::vector<char>> section_data;
     __IMAGE_SECTION_HEADER* import_section;
     __IMAGE_SECTION_HEADER* text_section;
     std::map<std::string, std::vector<std::string>> import_map;
@@ -137,10 +139,18 @@ class EXE_Parser64
             }
 
             if (section_header->VirtualAddress <= import_va 
-                                            && import_va <= section_header->VirtualAddress + section_header->Misc.VirtualSize)
+                        && import_va <= section_header->VirtualAddress + section_header->Misc.VirtualSize)
             {
                 import_section = section_header;
             }
+
+            std::vector<char> data(file_buffer + section_header->PointerToRawData, file_buffer + section_header->PointerToRawData + section_header->Misc.VirtualSize);
+            section_data[section_header] = data;
+            sections.push_back(section_header);
+            printf("%s:\n", section_header->Name);
+            for (int i = 0; i < 0x10; ++i)
+                printf("%x ", (int)data[i]);
+            printf("\n");
         }
 
         if (import_section)

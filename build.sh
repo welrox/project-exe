@@ -1,1 +1,1 @@
-g++ main.cpp -o water -std=c++17
+g++ -Wall main.cpp -o water -std=c++17
