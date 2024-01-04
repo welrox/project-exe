@@ -7,6 +7,15 @@ typedef int32_t LONG;
 typedef uint16_t WORD;
 typedef uint32_t DWORD;
 typedef uint64_t ULONGLONG;
+typedef unsigned long ULONG;
+typedef void* LPVOID;
+typedef void* PVOID;
+typedef long NTSTATUS;
+typedef unsigned short USHORT;
+typedef unsigned short WCHAR;
+typedef WCHAR* PWSTR;
+#define WINAPI
+typedef void VOID;
 
 #define ___IMAGE_NT_OPTIONAL_HDR32_MAGIC       0x10b
 #define ___IMAGE_NT_OPTIONAL_HDR64_MAGIC       0x20b
@@ -203,3 +212,142 @@ typedef struct _IMAGE_IMPORT_BY_NAME {
     WORD    Hint;
     CHAR   Name[1];
 } IMAGE_IMPORT_BY_NAME, *PIMAGE_IMPORT_BY_NAME;
+
+
+using PEXCEPTION_DISPOSITION = void*;
+typedef struct _EXCEPTION_REGISTRATION_RECORD
+{
+     void* Next;
+     PEXCEPTION_DISPOSITION Handler;
+} EXCEPTION_REGISTRATION_RECORD, *PEXCEPTION_REGISTRATION_RECORD;
+
+
+typedef struct _NT_TIB
+{
+     PEXCEPTION_REGISTRATION_RECORD ExceptionList;
+     PVOID StackBase;
+     PVOID StackLimit;
+     PVOID SubSystemTib;
+     union
+     {
+          PVOID FiberData;
+          ULONG Version;
+     };
+     PVOID ArbitraryUserPointer;
+     void* Self;
+} NT_TIB, *PNT_TIB;
+
+typedef struct _UNICODE_STRING {
+  USHORT Length;
+  USHORT MaximumLength;
+  PWSTR  Buffer;
+} UNICODE_STRING, *PUNICODE_STRING;
+
+typedef struct _CLIENT_ID
+{
+     PVOID UniqueProcess;
+     PVOID UniqueThread;
+} CLIENT_ID, *PCLIENT_ID;
+
+typedef struct _LIST_ENTRY {
+  struct _LIST_ENTRY *Flink;
+  struct _LIST_ENTRY *Blink;
+} LIST_ENTRY, *PLIST_ENTRY, PRLIST_ENTRY;
+
+typedef struct _PEB_LDR_DATA {
+  BYTE       Reserved1[8];
+  PVOID      Reserved2[3];
+  LIST_ENTRY InMemoryOrderModuleList;
+} PEB_LDR_DATA, *PPEB_LDR_DATA;
+
+typedef struct _RTL_USER_PROCESS_PARAMETERS {
+  BYTE           Reserved1[16];
+  PVOID          Reserved2[10];
+  UNICODE_STRING ImagePathName;
+  UNICODE_STRING CommandLine;
+} RTL_USER_PROCESS_PARAMETERS, *PRTL_USER_PROCESS_PARAMETERS;
+
+typedef VOID (WINAPI *PPS_POST_PROCESS_INIT_ROUTINE)(VOID);
+
+typedef struct _PEB {
+  BYTE                          Reserved1[2];
+  BYTE                          BeingDebugged;
+  BYTE                          Reserved2[1];
+  PVOID                         Reserved3[2];
+  PPEB_LDR_DATA                 Ldr;
+  PRTL_USER_PROCESS_PARAMETERS  ProcessParameters;
+  PVOID                         Reserved4[3];
+  PVOID                         AtlThunkSListPtr;
+  PVOID                         Reserved5;
+  ULONG                         Reserved6;
+  PVOID                         Reserved7;
+  ULONG                         Reserved8;
+  ULONG                         AtlThunkSListPtr32;
+  PVOID                         Reserved9[45];
+  BYTE                          Reserved10[96];
+  PPS_POST_PROCESS_INIT_ROUTINE PostProcessInitRoutine;
+  BYTE                          Reserved11[128];
+  PVOID                         Reserved12[1];
+  ULONG                         SessionId;
+} PEB, *PPEB;
+
+typedef struct _TEB {
+  NT_TIB                  Tib;
+  PVOID                   EnvironmentPointer;
+  CLIENT_ID               Cid;
+  PVOID                   ActiveRpcInfo;
+  PVOID                   ThreadLocalStoragePointer;
+  PPEB                    Peb;
+  ULONG                   LastErrorValue;
+  ULONG                   CountOfOwnedCriticalSections;
+  PVOID                   CsrClientThread;
+  PVOID                   Win32ThreadInfo;
+  ULONG                   Win32ClientInfo[0x1F];
+  PVOID                   WOW32Reserved;
+  ULONG                   CurrentLocale;
+  ULONG                   FpSoftwareStatusRegister;
+  PVOID                   SystemReserved1[0x36];
+  PVOID                   Spare1;
+  ULONG                   ExceptionCode;
+  ULONG                   SpareBytes1[0x28];
+  PVOID                   SystemReserved2[0xA];
+  ULONG                   GdiRgn;
+  ULONG                   GdiPen;
+  ULONG                   GdiBrush;
+  CLIENT_ID               RealClientId;
+  PVOID                   GdiCachedProcessHandle;
+  ULONG                   GdiClientPID;
+  ULONG                   GdiClientTID;
+  PVOID                   GdiThreadLocaleInfo;
+  PVOID                   UserReserved[5];
+  PVOID                   GlDispatchTable[0x118];
+  ULONG                   GlReserved1[0x1A];
+  PVOID                   GlReserved2;
+  PVOID                   GlSectionInfo;
+  PVOID                   GlSection;
+  PVOID                   GlTable;
+  PVOID                   GlCurrentRC;
+  PVOID                   GlContext;
+  NTSTATUS                LastStatusValue;
+  UNICODE_STRING          StaticUnicodeString;
+  WCHAR                   StaticUnicodeBuffer[0x105];
+  PVOID                   DeallocationStack;
+  PVOID                   TlsSlots[0x40];
+  LIST_ENTRY              TlsLinks;
+  PVOID                   Vdm;
+  PVOID                   ReservedForNtRpc;
+  PVOID                   DbgSsReserved[0x2];
+  ULONG                   HardErrorDisabled;
+  PVOID                   Instrumentation[0x10];
+  PVOID                   WinSockData;
+  ULONG                   GdiBatchCount;
+  ULONG                   Spare2;
+  ULONG                   Spare3;
+  ULONG                   Spare4;
+  PVOID                   ReservedForOle;
+  ULONG                   WaitingOnLoaderLock;
+  PVOID                   StackCommit;
+  PVOID                   StackCommitMax;
+  PVOID                   StackReserved;
+
+} TEB, *PTEB;

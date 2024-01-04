@@ -21,6 +21,8 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
             max_vm_addr = section->VirtualAddress;
     }
 
+    max_vm_addr += 0x1000;
+
     printf("max_vm_addr = %zu\n", max_vm_addr);
 
     size_t buffer_size = ROUND_UP(max_vm_addr + 0x1000, 0x4000);
@@ -152,15 +154,42 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     char text_segname[] = "__TEXT\0\0\0\0\0\0\0\0\0";
     memcpy(text.segname, text_segname, 16);
     text.vmaddr = parser.nt_header->OptionalHeader.ImageBase;
-    text.vmsize = max_vm_addr;
+    text.vmsize = buffer_size;
     text.fileoff = 0x0;
-    text.filesize = max_vm_addr;
+    text.filesize = buffer_size;
     memcpy(buffer + current_offset, &text, sizeof(text));
     current_offset += sizeof(text);
     total_cmd_size += text.cmdsize;
 
-    uintptr_t entry_point_va = parser.nt_header->OptionalHeader.AddressOfEntryPoint;
-    size_t entry_fileoff = entry_point_va;
+    uintptr_t real_entry_point_va = parser.nt_header->OptionalHeader.AddressOfEntryPoint;
+    size_t real_entry_fileoff = real_entry_point_va;
+
+    TEB teb;
+    // cant be bothered to move rsp value to teb.Tib.StackBase
+    teb.Tib.StackBase = reinterpret_cast<PVOID>(parser.nt_header->OptionalHeader.ImageBase);
+
+    uint64_t teb_fileoff = max_vm_addr;
+    size_t custom_entry_fileoff = max_vm_addr + sizeof(teb);
+
+    unsigned char entry_code[] =
+    {
+        0x50,                                                           // 0: push rax
+        0x48, 0xB8, 0x20, 0x94, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00,     // 1: movabs rax, 0x69420
+        0x65, 0x48, 0x89, 0x04, 0x25, 0x30, 0x00, 0x00, 0x00,           // 11: mov qword ptr [gs:0x30], rax
+        0x58,                                                           // 20: pop rax
+        0xE9, 0x00, 0x00, 0x00, 0x00                                    // 21: jmp real_entry_fileoff
+    };
+
+    {
+        int32_t entry_offset = real_entry_fileoff - (custom_entry_fileoff + 21) - 5;
+        memcpy(entry_code + 22, &entry_offset, sizeof(entry_offset));
+
+        uint64_t teb_vm_addr = parser.nt_header->OptionalHeader.ImageBase + teb_fileoff;
+        memcpy(entry_code + 3, &teb_vm_addr, sizeof(teb_vm_addr));
+    }
+
+    memcpy(buffer + teb_fileoff, &teb, sizeof(teb));
+    memcpy(buffer + custom_entry_fileoff, entry_code, sizeof(entry_code));
 
     for (auto* section : parser.sections)
     {
@@ -173,9 +202,9 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     std::cout << "total_cmd_size: " << total_cmd_size << '\n';
     memcpy(buffer + ((uintptr_t)(&(hdr.sizeofcmds)) - (uintptr_t)(&hdr)), &total_cmd_size, sizeof(total_cmd_size));
 
-    std::cout << "entry fileoff: " << std::hex << entry_fileoff << std::dec << '\n';
+    std::cout << "real entry fileoff: " << std::hex << real_entry_fileoff << std::dec << '\n';
 
-    main.entryoff = entry_fileoff;
+    main.entryoff = custom_entry_fileoff;//real_entry_fileoff;
     memcpy(buffer + main_offset + ((uintptr_t)&(main.entryoff) - (uintptr_t)&main), &main.entryoff, sizeof(main.entryoff));
     
     std::ofstream out_stream("out", std::ios::binary);
