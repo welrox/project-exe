@@ -144,13 +144,26 @@ class EXE_Parser64
                 import_section = section_header;
             }
 
-            std::vector<char> data(file_buffer + section_header->PointerToRawData, file_buffer + section_header->PointerToRawData + section_header->Misc.VirtualSize);
-            section_data[section_header] = data;
-            sections.push_back(section_header);
-            printf("%s:\n", section_header->Name);
-            for (int i = 0; i < 0x10; ++i)
-                printf("%x ", (int)data[i]);
-            printf("\n");
+            if (section_header->SizeOfRawData > 0)
+            {
+                std::vector<char> data(file_buffer + section_header->PointerToRawData, file_buffer + section_header->PointerToRawData + section_header->Misc.VirtualSize);
+                section_data[section_header] = data;
+                sections.push_back(section_header);
+                printf("%s:\n", section_header->Name);
+                for (int i = 0; i < 0x10; ++i)
+                    printf("%x ", (int)data[i]);
+                printf("\n");
+            }
+            else
+            {
+                std::vector<char> data(section_header->Misc.VirtualSize);
+                for (char& c : data)
+                    c = 0;
+                section_data[section_header] = data;
+                sections.push_back(section_header);
+                printf("%s: 0x%zx zeros\n", section_header->Name, data.size());
+                printf("\n");
+            }
         }
 
         if (import_section)

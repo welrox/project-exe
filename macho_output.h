@@ -39,9 +39,10 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     hdr.magic = MH_MAGIC_64;
     hdr.cputype = CPU_TYPE_X86_64;
     hdr.cpusubtype = 3;
-    hdr.flags = 0x00200085;
+    hdr.flags = MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL /*| MH_PIE*/;
+    printf("hdr flags match: %d\n", (int)(hdr.flags == 0x00200085));
     hdr.filetype = MH_EXECUTE;
-    hdr.ncmds = 8;
+    hdr.ncmds = 9;
     hdr.reserved = 0;
     hdr.sizeofcmds = sizeof(segment_command_64);
     memcpy(buffer + current_offset, &hdr, sizeof(hdr));
@@ -109,8 +110,22 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     current_offset += sizeof(dylib);
     memcpy(buffer + current_offset, dylib_name, sizeof(dylib_name));
     current_offset += (dylib.cmdsize - sizeof(dylib));
-
     total_cmd_size += dylib.cmdsize;
+
+    dylib_command kernel32;
+    kernel32.cmd = LC_LOAD_DYLIB;
+    kernel32.dylib.compatibility_version = 65536;
+    kernel32.dylib.current_version = 87556096;
+    kernel32.dylib.timestamp = 2;
+    const char kernel32_name[] = "@executable_path/kernel32/libkernel32.dylib";
+    kernel32.dylib.name.offset = sizeof(kernel32);
+    kernel32.cmdsize = ROUND_UP(sizeof(kernel32) + sizeof(kernel32_name), 0x10);
+    std::cout << "kernel32.cmdsize: " << kernel32.cmdsize << ", " << ROUND_UP(kernel32.cmdsize, 0x10) << '\n';
+    memcpy(buffer + current_offset, &kernel32, sizeof(kernel32));
+    current_offset += sizeof(kernel32);
+    memcpy(buffer + current_offset, kernel32_name, sizeof(kernel32_name));
+    current_offset += (kernel32.cmdsize - sizeof(kernel32));
+    total_cmd_size += kernel32.cmdsize;
 
     symtab_command symtab;
     symtab.cmd = LC_SYMTAB;
@@ -149,7 +164,7 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     text.flags = 0;
     text.initprot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE;
     text.maxprot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE;
-    text.nsects = 0;
+    text.nsects = 2;
     text.cmdsize += text.nsects * sizeof(section_64);
     char text_segname[] = "__TEXT\0\0\0\0\0\0\0\0\0";
     memcpy(text.segname, text_segname, 16);
@@ -160,12 +175,26 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     memcpy(buffer + current_offset, &text, sizeof(text));
     current_offset += sizeof(text);
     total_cmd_size += text.cmdsize;
+    section_64 base;
+    base.addr = text.vmaddr;
+    base.align = 1;
+    base.flags = 0x0;
+    base.nreloc = 0;
+    base.reloff = 0;
+    base.offset = text.fileoff;
+    base.size = text.filesize;
+    base.reserved1 = 0;
+    base.reserved2 = 0;
+    base.reserved3 = 0;
+    memcpy(base.sectname, "__base\0\0\0\0\0\0\0\0\0", sizeof(base.sectname));
+    memcpy(base.segname, text_segname, sizeof(base.segname));
+    memcpy(buffer + current_offset, &base, sizeof(base));
+    current_offset += sizeof(base);
 
     uintptr_t real_entry_point_va = parser.nt_header->OptionalHeader.AddressOfEntryPoint;
     size_t real_entry_fileoff = real_entry_point_va;
 
     TEB teb;
-    // cant be bothered to move rsp value to teb.Tib.StackBase
     teb.Tib.StackBase = reinterpret_cast<PVOID>(parser.nt_header->OptionalHeader.ImageBase);
 
     uint64_t teb_fileoff = max_vm_addr;
@@ -179,6 +208,23 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
         0x58,                                                           // 20: pop rax
         0xE9, 0x00, 0x00, 0x00, 0x00                                    // 21: jmp real_entry_fileoff
     };
+
+    size_t import_section_fileoff = custom_entry_fileoff + sizeof(entry_code);
+    section_64 import;
+    import.addr = text.vmaddr + parser.import_directory.VirtualAddress;
+    import.align = 0;
+    import.flags = 0x0;
+    import.nreloc = 0;
+    import.reloff = 0;
+    import.offset = import_section_fileoff;
+    import.size = 0;
+    import.reserved1 = 0;
+    import.reserved2 = 0;
+    import.reserved3 = 0;
+    memcpy(import.sectname, "__import\0\0\0\0\0\0\0", sizeof(import.sectname));
+    memcpy(import.segname, text_segname, sizeof(import.segname));
+    memcpy(buffer + current_offset, &import, sizeof(import));
+    current_offset += sizeof(import);
 
     {
         int32_t entry_offset = real_entry_fileoff - (custom_entry_fileoff + 21) - 5;
@@ -204,7 +250,7 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
 
     std::cout << "real entry fileoff: " << std::hex << real_entry_fileoff << std::dec << '\n';
 
-    main.entryoff = custom_entry_fileoff;//real_entry_fileoff;
+    main.entryoff = custom_entry_fileoff;
     memcpy(buffer + main_offset + ((uintptr_t)&(main.entryoff) - (uintptr_t)&main), &main.entryoff, sizeof(main.entryoff));
     
     std::ofstream out_stream("out", std::ios::binary);
