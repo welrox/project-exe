@@ -7,7 +7,8 @@
 #include <chrono>
 #include <unistd.h>
 #include <sys/mman.h>
-#include "../pe.h"
+#include "../../pe.h"
+#include "../asm.h"
 #define EXPORT extern "C" __attribute__((visibility("default")))
 
 void Sleep_impl(int32_t milliseconds)
@@ -30,10 +31,114 @@ EXPORT __attribute__((naked)) void Sleep()
         : "rcx", "rdi");
 }
 
-EXPORT void ExitProcess(unsigned int exit_code)
+void ExitProcess_impl(unsigned int exit_code)
 {
     printf("ExitProcess(%u)\n", exit_code);
     std::exit(exit_code);
+}
+
+EXPORT __attribute__((naked)) void ExitProcess()
+{
+    asm("movq %%rcx, %%rdi\n"
+        "call *%0\n"
+        :
+        : "r"(ExitProcess_impl)
+        :);
+}
+
+void EnterCriticalSection_impl(void* lpCriticalSection)
+{
+    printf("EnterCriticalSection(lpCriticalSection=%p)\n", lpCriticalSection);
+}
+
+EXPORT __attribute__((naked)) void EnterCriticalSection()
+{
+    asm("pushq %rax\n");
+
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n"
+        "popq %0\n"
+        "ret\n"
+        ""
+        :
+        : "a"(EnterCriticalSection_impl)
+        : "rcx", "rdi");
+}
+
+void DeleteCriticalSection_impl(void* lpCriticalSection)
+{
+    printf("DeleteCriticalSection(lpCriticalSection=%p)\n", lpCriticalSection);
+}
+
+EXPORT __attribute__((naked)) void DeleteCriticalSection()
+{
+    asm("pushq %rax\n");
+
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n"
+        "popq %0\n"
+        "ret\n"
+        ""
+        :
+        : "a"(DeleteCriticalSection_impl)
+        : "rcx", "rdi");
+}
+
+void LeaveCriticalSection_impl(void* lpCriticalSection)
+{
+    printf("LeaveCriticalSection(lpCriticalSection=%p)\n", lpCriticalSection);
+}
+
+EXPORT __attribute__((naked)) void LeaveCriticalSection()
+{
+    asm("pushq %rax\n");
+
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n"
+        "popq %0\n"
+        "ret\n"
+        ""
+        :
+        : "a"(LeaveCriticalSection_impl)
+        : "rcx", "rdi");
+}
+
+void InitializeCriticalSection_impl(void* lpCriticalSection)
+{
+    printf("InitializeCriticalSection(lpCriticalSection=%p)\n", lpCriticalSection);
+}
+
+EXPORT __attribute__((naked)) void InitializeCriticalSection()
+{
+    asm("pushq %rax\n");
+
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n"
+        "popq %0\n"
+        "ret\n"
+        ""
+        :
+        : "a"(InitializeCriticalSection_impl)
+        : "rcx", "rdi");
+}
+
+void* SetUnhandledExceptionFilter_impl(void* lpTopLevelExceptionFilter)
+{
+    printf("SetUnhandledExceptionFilter(lpTopLevelExceptionFilter=%p)\n", lpTopLevelExceptionFilter);
+    return nullptr;
+}
+
+EXPORT __attribute__((naked)) void SetUnhandledExceptionFilter()
+{
+    asm("pushq %rdi\n");
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n"
+        "popq %%rdi\n"
+        "ret\n"
+        ""
+        :
+        : "a"(SetUnhandledExceptionFilter_impl)
+        : "rcx", "rdi");
 }
 
 void unimplemented_fn()
@@ -41,13 +146,21 @@ void unimplemented_fn()
     printf("*** unimplemted kernel32 fn called ***\n");
 }
 
+DWORD last_error = 0;
+EXPORT DWORD GetLastError()
+{
+    return last_error;
+}
+
 __attribute__((constructor)) void start()
 {
     printf("kernel32 starting!\n");
-    #define IMPORT_NAME_TO_FN_ENTRY(name, fn) {name, reinterpret_cast<uintptr_t>(fn)}
+    #define IMPORT_ENTRY(name) {#name, reinterpret_cast<uintptr_t>(name)}
     const std::map<std::string, uintptr_t> import_name_to_fn = {
-        IMPORT_NAME_TO_FN_ENTRY("Sleep", Sleep), IMPORT_NAME_TO_FN_ENTRY("ExitProcess", ExitProcess)
+        IMPORT_ENTRY(Sleep), IMPORT_ENTRY(ExitProcess), IMPORT_ENTRY(EnterCriticalSection), IMPORT_ENTRY(DeleteCriticalSection),
+        IMPORT_ENTRY(LeaveCriticalSection), IMPORT_ENTRY(GetLastError), IMPORT_ENTRY(InitializeCriticalSection), IMPORT_ENTRY(SetUnhandledExceptionFilter),
     };
+    #undef IMPORT_ENTRY
 
     const struct section_64* base_cmd = getsectbyname("__TEXT", "__base");
     if (!base_cmd)

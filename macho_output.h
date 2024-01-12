@@ -7,6 +7,7 @@
 #include <cstring>
 #include <cassert>
 #include <unordered_map>
+#include <set>
 #include "macho.h"
 #include "exe_parser_64.h"
 
@@ -117,7 +118,7 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     kernel32.dylib.compatibility_version = 65536;
     kernel32.dylib.current_version = 87556096;
     kernel32.dylib.timestamp = 2;
-    const char kernel32_name[] = "@executable_path/kernel32/libkernel32.dylib";
+    const char kernel32_name[] = "@executable_path/dlls/kernel32/libkernel32.dylib";
     kernel32.dylib.name.offset = sizeof(kernel32);
     kernel32.cmdsize = ROUND_UP(sizeof(kernel32) + sizeof(kernel32_name), 0x10);
     std::cout << "kernel32.cmdsize: " << kernel32.cmdsize << ", " << ROUND_UP(kernel32.cmdsize, 0x10) << '\n';
@@ -126,6 +127,53 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     memcpy(buffer + current_offset, kernel32_name, sizeof(kernel32_name));
     current_offset += (kernel32.cmdsize - sizeof(kernel32));
     total_cmd_size += kernel32.cmdsize;
+
+    std::set<std::string> loaded_dylibs;
+
+    for (auto& [dll, _] : parser.import_map)
+    {
+        if (strcasecmp(dll.c_str(), "kernel32.dll") == 0)
+            continue;
+        std::string no_ext = dll.substr(0, dll.size() - 4).c_str();
+        if (loaded_dylibs.find(no_ext) != loaded_dylibs.end())
+            continue;
+
+        if (no_ext.find("api-ms-win-crt") != std::string::npos)
+        {
+            no_ext = "msvcrt";
+        }
+
+        std::string dylib_name = std::string("lib") + no_ext + ".dylib";
+        std::transform(dylib_name.begin(), dylib_name.end(), dylib_name.begin(),
+            [](unsigned char c){ return std::tolower(c); });
+        
+        std::ifstream presence_test(std::string("dlls/") + no_ext + std::string("/") + dylib_name);
+        if (presence_test)
+        {
+            presence_test.close();
+            dylib_command dyl;
+            dyl.cmd = LC_LOAD_DYLIB;
+            dyl.dylib.compatibility_version = 65536;
+            dyl.dylib.current_version = 87556096;
+            dyl.dylib.timestamp = 2;
+            std::string dyl_name_str = (std::string("@executable_path/dlls/") + no_ext + std::string("/") + dylib_name).c_str();
+            char dyl_name[dyl_name_str.size() + 1];
+            memcpy(dyl_name, dyl_name_str.data(), dyl_name_str.size());
+            dyl_name[dyl_name_str.size()] = '\0';
+            dyl.dylib.name.offset = sizeof(dyl);
+            dyl.cmdsize = ROUND_UP(sizeof(dyl) + sizeof(dyl_name), 0x10);
+            std::cout << "dyl.cmdsize: " << dyl.cmdsize << ", " << ROUND_UP(dyl.cmdsize, 0x10) << '\n';
+            memcpy(buffer + current_offset, &dyl, sizeof(dyl));
+            current_offset += sizeof(dyl);
+            memcpy(buffer + current_offset, dyl_name, sizeof(dyl_name));
+            current_offset += (dyl.cmdsize - sizeof(dyl));
+            total_cmd_size += dyl.cmdsize;
+            reinterpret_cast<mach_header_64*>(buffer)->ncmds++;
+            loaded_dylibs.insert(no_ext);
+        }
+        else
+            printf("%s does NOT exist\n", dylib_name.c_str());
+    }
 
     symtab_command symtab;
     symtab.cmd = LC_SYMTAB;
