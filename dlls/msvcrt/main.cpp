@@ -4,6 +4,7 @@
 #include <mach-o/dyld.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <sys/file.h>
 #include "../../pe.h"
 #include "../asm.h"
 #define EXPORT extern "C" __attribute__((visibility("default")))
@@ -278,6 +279,134 @@ EXPORT __attribute__((naked)) void _memcpy()
     asm("retq\n");
 }
 
+FILE* __acrt_iob_func_impl(unsigned int index)
+{
+    printf("__acrt_iob_func(index=%u)\n", index);
+    switch (index)
+    {
+        case 0:
+        return stdin;
+        break;
+        case 1:
+        return stdout;
+        break;
+        case 2:
+        return stderr;
+        break;
+        default:
+        throw std::runtime_error("i don't think this index value is valid but can't know for sure...");
+        break;
+    }
+}
+
+EXPORT __attribute__((naked)) void __acrt_iob_func()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n": : "r"(__acrt_iob_func_impl):);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+void _lock_file_impl(FILE* file)
+{
+    printf("_lock_file(file=%p)\n", file);
+    int fd = fileno(file);
+    printf("\tfd=%d\n", fd);
+    int ret = flock(fd, LOCK_EX);
+    printf("\tret=%d\n", ret);
+}
+
+EXPORT __attribute__((naked)) void _lock_file()
+{
+    PUSH_ALL_REGS;
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n": : "r"(_lock_file_impl):);
+    POP_ALL_REGS;
+    asm("retq\n");
+}
+
+void _unlock_file_impl(FILE* file)
+{
+    printf("_unlock_file(file=%p)\n", file);
+    int fd = fileno(file);
+    printf("\tfd=%d\n", fd);
+    int ret = flock(fd, LOCK_UN);
+    printf("\tret=%d\n", ret);
+}
+
+EXPORT __attribute__((naked)) void _unlock_file()
+{
+    PUSH_ALL_REGS;
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n": : "r"(_unlock_file_impl):);
+    POP_ALL_REGS;
+    asm("retq\n");
+}
+
+int* _errno_impl()
+{
+    printf("_errno()\n");
+    return &errno;
+}
+
+EXPORT __attribute__((naked)) void _errno()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("callq *%0\n": : "r"(_errno_impl):);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+int fputc_impl(int c, FILE* stream)
+{
+    //printf("fputc(c=%d, stream=%p)\n", c, stream);
+    return fputc(c, stream);
+}
+
+EXPORT __attribute__((naked)) void _fputc()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "movq %%rdx, %%rsi\n"
+        "callq *%0\n"
+        : : "r"(fputc_impl):);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+void _exit_impl(int exit_code)
+{
+    printf("_exit(exit_code=%d)\n", exit_code);
+    _exit(exit_code);
+}
+
+EXPORT __attribute__((naked)) void ___exit()
+{
+    PUSH_ALL_REGS;
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n"
+        : : "r"(_exit_impl):);
+    POP_ALL_REGS;
+    asm("retq\n");
+}
+
+void exit_impl(int exit_code)
+{
+    printf("exit(exit_code=%d)\n", exit_code);
+    exit(exit_code);
+}
+
+EXPORT __attribute__((naked)) void __exit()
+{
+    PUSH_ALL_REGS;
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n"
+        : : "r"(exit_impl):);
+    POP_ALL_REGS;
+    asm("retq\n");
+}
+
 __attribute__((constructor)) void start(int argc, char** argv, char** env)
 {
     printf("msvcrt starting!\n");
@@ -292,6 +421,8 @@ __attribute__((constructor)) void start(int argc, char** argv, char** env)
         IMPORT_ENTRY(_initialize_narrow_environment), IMPORT_ENTRY(_configure_narrow_argv), IMPORT_ENTRY(__p___argc), 
         IMPORT_ENTRY(__p___argv), IMPORT_ENTRY(__p__environ), IMPORT_ENTRY(_set_new_mode), IMPORT_ENTRY(_set_invalid_parameter_handler),
         {"strlen", reinterpret_cast<uintptr_t>(_strlen)}, {"memcpy", reinterpret_cast<uintptr_t>(_memcpy)}, IMPORT_ENTRY(_crt_atexit),
+        IMPORT_ENTRY(__acrt_iob_func), IMPORT_ENTRY(_lock_file), IMPORT_ENTRY(_errno), {"fputc", reinterpret_cast<uintptr_t>(_fputc)},
+        IMPORT_ENTRY(_unlock_file), {"_exit", reinterpret_cast<uintptr_t>(___exit)}, {"exit", reinterpret_cast<uintptr_t>(__exit)}
     };
     #undef IMPORT_ENTRY
 
