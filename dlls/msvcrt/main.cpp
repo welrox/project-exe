@@ -3,8 +3,10 @@
 #include <mach-o/getsect.h>
 #include <mach-o/dyld.h>
 #include <unistd.h>
+#include <termios.h>
 #include <sys/mman.h>
 #include <sys/file.h>
+#include <sys/ioctl.h>
 #include "../../pe.h"
 #include "../asm.h"
 #define EXPORT extern "C" __attribute__((visibility("default")))
@@ -130,13 +132,24 @@ EXPORT __attribute__((naked)) void _malloc()
     asm("ret\n");
 }
 
+std::vector<void(*)()> _onexit_functions = {};
 void* _onexit_impl(void(*function)())
 {
     printf("_onexit(function=%p)\n", function);
-    int result = atexit(function);
-    if (result == 0)
-        return reinterpret_cast<void*>(function);
-    return nullptr;
+    // calling atexit crashes since it expects a valid mach-o header to be loaded in memory,
+    // but that had already been overwritten with a DOS and PE header by kernel32,
+    // so we implement our own _onexit
+
+    _onexit_functions.push_back(function);
+    return reinterpret_cast<void*>(function);
+}
+
+EXPORT void ____call_all_exit_functions()
+{
+    for (auto function : _onexit_functions)
+    {
+        function();
+    }
 }
 
 EXPORT __attribute__((naked)) void _onexit()
@@ -407,6 +420,135 @@ EXPORT __attribute__((naked)) void __exit()
     asm("retq\n");
 }
 
+// this is all wrong
+int __stdio_common_vfprintf_impl(int unknown, FILE* stream, const char* format, va_list arg)
+{
+    printf("__stdio_common_vfprintf(stream=%p (fd=%d), format='%s', arg=%p)\n", stream, fileno(stream), format, arg);
+    return vfprintf(stream, format, arg);
+}
+
+EXPORT __attribute__((naked)) void __stdio_common_vfprintf()
+{
+    asm("movq %rbp, 0x28(%rsp)");
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "movq %%rdx, %%rsi\n"
+        "movq %%r8, %%rdx\n"
+        "movq %%rbp, %%rcx\n"
+        "callq *%0\n"
+        : : "r"(__stdio_common_vfprintf_impl):);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+size_t fwrite_impl(const void* buffer, size_t size, size_t count, FILE* stream)
+{
+    printf("fwrite(buffer=%p, size=%zu, count=%zu, stream=%p (fd=%d))\n", buffer, size, count, stream, fileno(stream));
+    return fwrite(buffer, size, count, stream);
+}
+
+EXPORT __attribute__((naked)) void _fwrite()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "movq %%rdx, %%rsi\n"
+        "movq %%r8, %%rdx\n"
+        "movq %%r9, %%rcx\n"
+        "callq *%0\n"
+        : : "r"(fwrite_impl):);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+EXPORT void _abort()
+{
+    abort();
+}
+
+time_t _time64_impl(time_t* arg)
+{
+    printf("_time64(arg=%p)\n", arg);
+    return time(arg);
+}
+
+EXPORT __attribute__((naked)) void _time64()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n"
+        : : "r"(_time64_impl):);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+void srand_impl(unsigned int seed)
+{
+    printf("srand(seed=%u)\n", seed);
+    srand(seed);
+}
+
+EXPORT __attribute__((naked)) void _srand()
+{
+    PUSH_ALL_REGS;
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n"
+        : : "r"(srand_impl):);
+    POP_ALL_REGS;
+    asm("retq\n");
+}
+
+EXPORT int _rand()
+{
+    printf("rand()\n");
+    return rand();
+}
+
+int system_impl(const char* command)
+{
+    printf("system(command=%s)\n", command);
+    if (strcmp(command, "cls") == 0)
+    {
+        return system("clear");
+    }
+    return system(command);
+}
+
+EXPORT __attribute__((naked)) void _system()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n"
+        : : "r"(system_impl):);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+EXPORT int _kbhit()
+{
+    // https://www.flipcode.com/archives/_kbhit_for_Linux.shtml
+    static const int STDIN = 0;
+    static int initialized = 0;
+
+    if (! initialized) {
+        // Use termios to turn off line buffering
+        struct termios term;
+        tcgetattr(STDIN, &term);
+        term.c_lflag &= ~ICANON;
+        tcsetattr(STDIN, TCSANOW, &term);
+        setbuf(stdin, NULL);
+        initialized = 1;
+    }
+
+    int bytesWaiting;
+    ioctl(STDIN, FIONREAD, &bytesWaiting);
+    return bytesWaiting;
+}
+
+EXPORT int _getch()
+{
+    return fgetc(stdin);
+}
+
 __attribute__((constructor)) void start(int argc, char** argv, char** env)
 {
     printf("msvcrt starting!\n");
@@ -414,17 +556,22 @@ __attribute__((constructor)) void start(int argc, char** argv, char** env)
     __argv = argv;
     __env = env;
     #define IMPORT_ENTRY(name) {#name, reinterpret_cast<uintptr_t>(&name)}
+    #define PTR(sym) reinterpret_cast<uintptr_t>(sym)
     const std::map<std::string, uintptr_t> import_name_to_fn = {
         IMPORT_ENTRY(_initterm), IMPORT_ENTRY(__set_app_type), IMPORT_ENTRY(__getmainargs), IMPORT_ENTRY(__initenv),
-        IMPORT_ENTRY(_fmode), IMPORT_ENTRY(_commode), {"malloc", reinterpret_cast<uintptr_t>(&_malloc)}, IMPORT_ENTRY(_onexit),
-        {"_set_app_type", reinterpret_cast<uintptr_t>(__set_app_type)}, IMPORT_ENTRY(__p__fmode), IMPORT_ENTRY(__p__commode),
+        IMPORT_ENTRY(_fmode), IMPORT_ENTRY(_commode), {"malloc", PTR(&_malloc)}, IMPORT_ENTRY(_onexit),
+        {"_set_app_type", PTR(__set_app_type)}, IMPORT_ENTRY(__p__fmode), IMPORT_ENTRY(__p__commode),
         IMPORT_ENTRY(_initialize_narrow_environment), IMPORT_ENTRY(_configure_narrow_argv), IMPORT_ENTRY(__p___argc), 
         IMPORT_ENTRY(__p___argv), IMPORT_ENTRY(__p__environ), IMPORT_ENTRY(_set_new_mode), IMPORT_ENTRY(_set_invalid_parameter_handler),
-        {"strlen", reinterpret_cast<uintptr_t>(_strlen)}, {"memcpy", reinterpret_cast<uintptr_t>(_memcpy)}, IMPORT_ENTRY(_crt_atexit),
-        IMPORT_ENTRY(__acrt_iob_func), IMPORT_ENTRY(_lock_file), IMPORT_ENTRY(_errno), {"fputc", reinterpret_cast<uintptr_t>(_fputc)},
-        IMPORT_ENTRY(_unlock_file), {"_exit", reinterpret_cast<uintptr_t>(___exit)}, {"exit", reinterpret_cast<uintptr_t>(__exit)}
+        {"strlen", PTR(_strlen)}, {"memcpy", PTR(_memcpy)}, IMPORT_ENTRY(_crt_atexit),
+        IMPORT_ENTRY(__acrt_iob_func), IMPORT_ENTRY(_lock_file), IMPORT_ENTRY(_errno), {"fputc", PTR(_fputc)},
+        IMPORT_ENTRY(_unlock_file), {"_exit", PTR(___exit)}, {"exit", PTR(__exit)},
+        IMPORT_ENTRY(__stdio_common_vfprintf), {"abort", PTR(_abort)}, {"fwrite", PTR(_fwrite)},
+        IMPORT_ENTRY(_time64), {"srand", PTR(_srand)}, {"rand", PTR(_rand)}, {"system", PTR(_system)}, IMPORT_ENTRY(_kbhit),
+        IMPORT_ENTRY(_getch),
     };
     #undef IMPORT_ENTRY
+    #undef PTR
 
     const struct section_64* base_cmd = getsectbyname("__TEXT", "__base");
     if (!base_cmd)

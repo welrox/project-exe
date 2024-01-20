@@ -1,0 +1,1 @@
+clang++ main.cpp -arch x86_64 -o libstdc++-6.dylib -shared -std=c++17

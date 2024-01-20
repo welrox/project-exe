@@ -26,7 +26,7 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
 
     printf("max_vm_addr = %zu\n", max_vm_addr);
 
-    size_t buffer_size = ROUND_UP(max_vm_addr + 0x1000, 0x4000);
+    size_t buffer_size = ROUND_UP(max_vm_addr + 0x2000, 0x4000);
 
     printf("buffer size = %zu\n", buffer_size);
     char* buffer = new char[buffer_size];
@@ -113,21 +113,6 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     current_offset += (dylib.cmdsize - sizeof(dylib));
     total_cmd_size += dylib.cmdsize;
 
-    dylib_command kernel32;
-    kernel32.cmd = LC_LOAD_DYLIB;
-    kernel32.dylib.compatibility_version = 65536;
-    kernel32.dylib.current_version = 87556096;
-    kernel32.dylib.timestamp = 2;
-    const char kernel32_name[] = "@executable_path/dlls/kernel32/libkernel32.dylib";
-    kernel32.dylib.name.offset = sizeof(kernel32);
-    kernel32.cmdsize = ROUND_UP(sizeof(kernel32) + sizeof(kernel32_name), 0x10);
-    std::cout << "kernel32.cmdsize: " << kernel32.cmdsize << ", " << ROUND_UP(kernel32.cmdsize, 0x10) << '\n';
-    memcpy(buffer + current_offset, &kernel32, sizeof(kernel32));
-    current_offset += sizeof(kernel32);
-    memcpy(buffer + current_offset, kernel32_name, sizeof(kernel32_name));
-    current_offset += (kernel32.cmdsize - sizeof(kernel32));
-    total_cmd_size += kernel32.cmdsize;
-
     std::set<std::string> loaded_dylibs;
 
     for (auto& [dll, _] : parser.import_map)
@@ -135,17 +120,21 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
         if (strcasecmp(dll.c_str(), "kernel32.dll") == 0)
             continue;
         std::string no_ext = dll.substr(0, dll.size() - 4).c_str();
-        if (loaded_dylibs.find(no_ext) != loaded_dylibs.end())
-            continue;
-
         if (no_ext.find("api-ms-win-crt") != std::string::npos)
         {
             no_ext = "msvcrt";
         }
 
-        std::string dylib_name = std::string("lib") + no_ext + ".dylib";
+        std::string dylib_name = no_ext + ".dylib";
+
+        if (dylib_name.find("lib") != 0)
+            dylib_name = std::string("lib") + dylib_name;
+        
         std::transform(dylib_name.begin(), dylib_name.end(), dylib_name.begin(),
             [](unsigned char c){ return std::tolower(c); });
+
+        if (loaded_dylibs.find(no_ext) != loaded_dylibs.end())
+            continue;
         
         std::ifstream presence_test(std::string("dlls/") + no_ext + std::string("/") + dylib_name);
         if (presence_test)
@@ -169,11 +158,26 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
             current_offset += (dyl.cmdsize - sizeof(dyl));
             total_cmd_size += dyl.cmdsize;
             reinterpret_cast<mach_header_64*>(buffer)->ncmds++;
-            loaded_dylibs.insert(no_ext);
+            loaded_dylibs.insert(dylib_name);
         }
         else
             printf("%s does NOT exist\n", dylib_name.c_str());
     }
+
+    dylib_command kernel32;
+    kernel32.cmd = LC_LOAD_DYLIB;
+    kernel32.dylib.compatibility_version = 65536;
+    kernel32.dylib.current_version = 87556096;
+    kernel32.dylib.timestamp = 2;
+    const char kernel32_name[] = "@executable_path/dlls/kernel32/libkernel32.dylib";
+    kernel32.dylib.name.offset = sizeof(kernel32);
+    kernel32.cmdsize = ROUND_UP(sizeof(kernel32) + sizeof(kernel32_name), 0x10);
+    std::cout << "kernel32.cmdsize: " << kernel32.cmdsize << ", " << ROUND_UP(kernel32.cmdsize, 0x10) << '\n';
+    memcpy(buffer + current_offset, &kernel32, sizeof(kernel32));
+    current_offset += sizeof(kernel32);
+    memcpy(buffer + current_offset, kernel32_name, sizeof(kernel32_name));
+    current_offset += (kernel32.cmdsize - sizeof(kernel32));
+    total_cmd_size += kernel32.cmdsize;
 
     symtab_command symtab;
     symtab.cmd = LC_SYMTAB;
@@ -212,7 +216,7 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     text.flags = 0;
     text.initprot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE;
     text.maxprot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE;
-    text.nsects = 2;
+    text.nsects = 4;
     text.cmdsize += text.nsects * sizeof(section_64);
     char text_segname[] = "__TEXT\0\0\0\0\0\0\0\0\0";
     memcpy(text.segname, text_segname, 16);
@@ -250,12 +254,24 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
 
     unsigned char entry_code[] =
     {
-        0x50,                                                           // 0: push rax
-        0x48, 0xB8, 0x20, 0x94, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00,     // 1: movabs rax, 0x69420
-        0x65, 0x48, 0x89, 0x04, 0x25, 0x30, 0x00, 0x00, 0x00,           // 11: mov qword ptr [gs:0x30], rax
-        0x58,                                                           // 20: pop rax
-        0xE9, 0x00, 0x00, 0x00, 0x00                                    // 21: jmp real_entry_fileoff
+        0x48, 0xBF, 0xEF, 0xBE, 0xED, 0xFE, 0xCE, 0xFA, 0xAD, 0xDE,     // 00: movabs rdi, 0xdeadfacefeedbeef
+        0x48, 0xBE, 0x78, 0x56, 0xEF, 0xBE, 0x34, 0x12, 0xED, 0xFE,     // 0a: movabs rsi, 0xfeed1234beef5678
+        0x48, 0xBA, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00,     // 14: movabs rdx,0xffffffff
+        0xE8, 0x00, 0x00, 0x00, 0x00,                                   // 1e: call memcpy
+
+        0x50,                                                           // 23: push rax
+        0x48, 0xB8, 0x20, 0x94, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00,     // 24: movabs rax, 0x69420
+        0x65, 0x48, 0x89, 0x04, 0x25, 0x30, 0x00, 0x00, 0x00,           // 2e: mov qword ptr [gs:0x30], rax
+        0x58,                                                           // 37: pop rax
+        0xE9, 0x00, 0x00, 0x00, 0x00                                    // 38: jmp real_entry_fileoff
     };
+
+    // todo: make custom entry also write PE sections
+    size_t dos_nt_spacing = (parser.dos_header->e_lfanew - sizeof(IMAGE_DOS_HEADER));
+    size_t dos_and_pe_headers_size = sizeof(IMAGE_DOS_HEADER) + dos_nt_spacing + sizeof(__IMAGE_NT_HEADERS64) + parser.sections.size() * sizeof(__IMAGE_SECTION_HEADER);
+    size_t dos_and_pe_headers_fileoff = custom_entry_fileoff + sizeof(entry_code);
+
+    printf("dos_and_pe_headers_size = %zu, dos_and_pe_headers_fileoff = %zu\n", dos_and_pe_headers_size, dos_and_pe_headers_fileoff);
 
     size_t import_section_fileoff = custom_entry_fileoff + sizeof(entry_code);
     section_64 import;
@@ -274,16 +290,65 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     memcpy(buffer + current_offset, &import, sizeof(import));
     current_offset += sizeof(import);
 
+    section_64 header;
+    header.addr = text.vmaddr + dos_and_pe_headers_fileoff;
+    header.align = 0;
+    header.flags = 0x0;
+    header.nreloc = 0;
+    header.reloff = 0;
+    header.offset = dos_and_pe_headers_fileoff;
+    header.size = dos_and_pe_headers_size;
+    header.reserved1 = 0;
+    header.reserved2 = 0;
+    header.reserved3 = 0;
+    memcpy(header.sectname, "__header\0\0\0\0\0\0\0", sizeof(header.sectname));
+    memcpy(header.segname, text_segname, sizeof(header.segname));
+    memcpy(buffer + current_offset, &header, sizeof(header));
+    current_offset += sizeof(header);
+
+    section_64 entry;
+    entry.addr = text.vmaddr + custom_entry_fileoff;
+    entry.align = 0;
+    entry.flags = 0x0;
+    entry.nreloc = 0;
+    entry.reloff = 0;
+    entry.offset = custom_entry_fileoff;
+    entry.size = sizeof(entry_code);
+    entry.reserved1 = 0;
+    entry.reserved2 = 0;
+    entry.reserved3 = 0;
+    memcpy(entry.sectname, "__entry\0\0\0\0\0\0\0\0", sizeof(entry.sectname));
+    memcpy(entry.segname, text_segname, sizeof(entry.segname));
+    memcpy(buffer + current_offset, &entry, sizeof(entry));
+    current_offset += sizeof(entry);
+
+    if (sizeof(entry_code) != 61)
     {
-        int32_t entry_offset = real_entry_fileoff - (custom_entry_fileoff + 21) - 5;
-        memcpy(entry_code + 22, &entry_offset, sizeof(entry_offset));
+        throw std::runtime_error("entry code has changed, please update code");
+    }
+    { 
+        memcpy(entry_code + 2, &parser.nt_header->OptionalHeader.ImageBase, sizeof(parser.nt_header->OptionalHeader.ImageBase));
+        memcpy(entry_code + 0xc, &header.addr, 8);
+        memcpy(entry_code + 0x16, &dos_and_pe_headers_size, sizeof(dos_and_pe_headers_size));
+
+        int32_t entry_offset = real_entry_fileoff - (custom_entry_fileoff + 0x38) - 5;
+        memcpy(entry_code + 0x39, &entry_offset, sizeof(entry_offset));
 
         uint64_t teb_vm_addr = parser.nt_header->OptionalHeader.ImageBase + teb_fileoff;
-        memcpy(entry_code + 3, &teb_vm_addr, sizeof(teb_vm_addr));
+        memcpy(entry_code + 0x26, &teb_vm_addr, sizeof(teb_vm_addr));
     }
 
     memcpy(buffer + teb_fileoff, &teb, sizeof(teb));
     memcpy(buffer + custom_entry_fileoff, entry_code, sizeof(entry_code));
+    memcpy(buffer + dos_and_pe_headers_fileoff, parser.dos_header, sizeof(*parser.dos_header));
+    current_offset = dos_and_pe_headers_fileoff + sizeof(*parser.dos_header) + dos_nt_spacing;
+    memcpy(buffer + current_offset, parser.nt_header, sizeof(*parser.nt_header));
+    current_offset += sizeof(*parser.nt_header);
+    for (auto* pe_section : parser.sections)
+    {
+        memcpy(buffer + current_offset, pe_section, sizeof(*pe_section));
+        current_offset += sizeof(*pe_section);
+    }
 
     for (auto* section : parser.sections)
     {

@@ -8,6 +8,7 @@ typedef uint16_t WORD;
 typedef uint32_t DWORD;
 typedef uint64_t ULONGLONG;
 typedef unsigned long ULONG;
+typedef size_t SIZE_T;
 typedef void* LPVOID;
 typedef void* PVOID;
 typedef long NTSTATUS;
@@ -351,3 +352,14 @@ typedef struct _TEB {
   PVOID                   StackReserved;
 
 } TEB, *PTEB;
+
+typedef struct _MEMORY_BASIC_INFORMATION {
+  PVOID  BaseAddress;
+  PVOID  AllocationBase;
+  DWORD  AllocationProtect;
+  WORD   PartitionId;
+  SIZE_T RegionSize;
+  DWORD  State;
+  DWORD  Protect;
+  DWORD  Type;
+} MEMORY_BASIC_INFORMATION, *PMEMORY_BASIC_INFORMATION;

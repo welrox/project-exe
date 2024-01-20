@@ -2,6 +2,10 @@
 #include <map>
 #include <mach-o/getsect.h>
 #include <mach-o/dyld.h>
+#include <mach/mach.h>
+#include <mach/vm_region.h>
+#include <mach/mach_vm.h>
+#include <mach/vm_map.h>
 #include <dlfcn.h>
 #include <thread>
 #include <chrono>
@@ -34,6 +38,23 @@ EXPORT __attribute__((naked)) void Sleep()
 void ExitProcess_impl(unsigned int exit_code)
 {
     printf("ExitProcess(%u)\n", exit_code);
+    void* msvcrt_handle = dlopen("libmsvcrt.dylib", RTLD_NOLOAD);
+    if (!msvcrt_handle)
+    {
+        printf("msvcrt_handle is null\n");
+    }
+    else
+    {
+        void(*call_all)() = (void(*)())dlsym(msvcrt_handle, "____call_all_exit_functions");
+        if (!call_all)
+        {
+            printf("call_all is null\n");
+        }
+        else
+        {
+            call_all();
+        }
+    }
     std::exit(exit_code);
 }
 
@@ -141,15 +162,91 @@ EXPORT __attribute__((naked)) void SetUnhandledExceptionFilter()
         : "rcx", "rdi");
 }
 
+SIZE_T VirtualQuery_impl(const void* lpAddress, PMEMORY_BASIC_INFORMATION lpBuffer, SIZE_T dwLength)
+{
+    //lpAddress = reinterpret_cast<const void*>(reinterpret_cast<uintptr_t>(lpAddress) + 0x1000);
+    printf("VirtualQuery(lpAddress=%p, lpBuffer=%p, dwLength=%zu)\n", lpAddress, lpBuffer, dwLength);
+    vm_size_t size = 0;
+    vm_region_flavor_t flavor = VM_REGION_BASIC_INFO_64;
+    vm_region_basic_info_data_64_t info;
+    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t object = 0;
+    kern_return_t kret = vm_region_64(current_task(), reinterpret_cast<vm_address_t*>(&lpAddress), &size, flavor, (vm_region_info_64_t)&info, &count, &object);
+    printf("\tkret: %d (%s)\n", kret, mach_error_string(kret));
+    if (kret == KERN_SUCCESS)
+    {
+        printf("\toffset = 0x%llx\n", info.offset);
+        printf("\tsize = 0x%lx\n", size);
+        lpBuffer->AllocationBase = reinterpret_cast<PVOID>(reinterpret_cast<uintptr_t>(lpAddress) - info.offset);
+        lpBuffer->AllocationProtect = info.protection;
+        lpBuffer->BaseAddress = lpBuffer->AllocationBase;
+        lpBuffer->Protect = info.protection;
+        lpBuffer->RegionSize = size;
+        lpBuffer->State = 0x1000; // MEM_COMMIT
+        lpBuffer->Type = 0x40000 | 0x20000; // MEM_MAPPED | MEM_PRIVATE
+    }
+    else
+    {
+        return 0;
+    }
+    return sizeof(MEMORY_BASIC_INFORMATION);
+}
+
+EXPORT __attribute__((naked)) void VirtualQuery()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "movq %%rdx, %%rsi\n"
+        "movq %%r8, %%rdx\n"
+        "callq *%0\n"
+        :
+        : "r"(VirtualQuery_impl)
+        : "rcx", "rdi");
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+bool VirtualProtect_impl(LPVOID lpAddress, SIZE_T dwSize, DWORD flNewProtect, DWORD* lpflOldProtect)
+{
+    printf("VirtualProtect(lpAddress=%p, dwSize=%zu, flNewProtect=0x%x, lpflOldProtect=%p)\n", lpAddress, dwSize, flNewProtect, lpflOldProtect);
+    // not implemented
+    return true;
+}
+
+EXPORT __attribute__((naked)) void VirtualProtect()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "movq %%rdx, %%rsi\n"
+        "movq %%r8, %%rdx\n"
+        "movq %%r9, %%rcx\n"
+        "callq *%0\n"
+        :
+        : "r"(VirtualProtect_impl)
+        : "rcx", "rdi");
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
 void unimplemented_fn()
 {
-    printf("*** unimplemted kernel32 fn called ***\n");
+    void* address;
+    asm("movq 8(%%rbp), %0":"=r"(address):);
+    printf("*** unimplemented kernel32 function (return=%p)***\n", address);
 }
 
 DWORD last_error = 0;
 EXPORT DWORD GetLastError()
 {
     return last_error;
+}
+
+void __memcpy_kernel32_startup_impl(void* dst, const void* src, size_t size)
+{
+    for (size_t i = 0; i < size; ++i)
+    {
+        reinterpret_cast<char*>(dst)[i] = reinterpret_cast<const char*>(src)[i];
+    }
 }
 
 __attribute__((constructor)) void start()
@@ -159,6 +256,7 @@ __attribute__((constructor)) void start()
     const std::map<std::string, uintptr_t> import_name_to_fn = {
         IMPORT_ENTRY(Sleep), IMPORT_ENTRY(ExitProcess), IMPORT_ENTRY(EnterCriticalSection), IMPORT_ENTRY(DeleteCriticalSection),
         IMPORT_ENTRY(LeaveCriticalSection), IMPORT_ENTRY(GetLastError), IMPORT_ENTRY(InitializeCriticalSection), IMPORT_ENTRY(SetUnhandledExceptionFilter),
+        IMPORT_ENTRY(VirtualQuery), IMPORT_ENTRY(VirtualProtect), 
     };
     #undef IMPORT_ENTRY
 
@@ -174,7 +272,27 @@ __attribute__((constructor)) void start()
         printf("kernel32 error: could not find section __import, exiting\n");
         std::exit(1);
     }
+    const struct section_64* header_cmd = getsectbyname("__TEXT", "__header");
+    if (!header_cmd)
+    {
+        printf("kernel32 error: could not find section __header, exiting\n");
+        std::exit(1);
+    }
+    const struct section_64* entry_cmd = getsectbyname("__TEXT", "__entry");
+    if (!entry_cmd)
+    {
+        printf("kernel32 error: could not find section __entry, exiting\n");
+        std::exit(1);
+    }
 
+    if (entry_cmd->size != 61)
+    {
+        throw std::runtime_error("custom entry code size has changed -- update kernel32 to work with the new code");
+    }
+
+    uint32_t memcpy_offset = reinterpret_cast<uintptr_t>(__memcpy_kernel32_startup_impl) - (entry_cmd->addr + 0x1e) - 5;
+    printf("kernel32: patching memcpy into entry\n");
+    memcpy(reinterpret_cast<void*>(entry_cmd->addr + 0x1f), &memcpy_offset, sizeof(memcpy_offset));
     
     constexpr int exe_image_index = 0;
     uintptr_t exe_base = reinterpret_cast<uintptr_t>(_dyld_get_image_header(exe_image_index));
