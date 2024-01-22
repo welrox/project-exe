@@ -17,7 +17,7 @@
 
 void Sleep_impl(int32_t milliseconds)
 {
-    printf("Sleep(%d)\n", milliseconds);
+    //printf("Sleep(%d)\n", milliseconds);
     std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
 }
 
@@ -243,10 +243,192 @@ EXPORT DWORD GetLastError()
 
 void __memcpy_kernel32_startup_impl(void* dst, const void* src, size_t size)
 {
+    char* buf = new char[size];
+    for (size_t i = 0; i < size; ++i)
+    {
+        buf[i] = reinterpret_cast<char*>(dst)[i];
+    }
     for (size_t i = 0; i < size; ++i)
     {
         reinterpret_cast<char*>(dst)[i] = reinterpret_cast<const char*>(src)[i];
     }
+    for (size_t i = 0; i < size; ++i)
+    {
+        const_cast<char*>(reinterpret_cast<const char*>(src))[i] = buf[i];
+    }
+    delete[] buf;
+}
+
+void* GetStdHandle_impl(DWORD nStdHandle)
+{
+    printf("GetStdHandle(nStdHandle=%d)\n", static_cast<signed int>(nStdHandle));
+    return reinterpret_cast<void*>(0xdeadfacefeedbeef);
+}
+
+ EXPORT __attribute__((naked)) void GetStdHandle()
+ {
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n"
+        :
+        : "r"(GetStdHandle_impl)
+        :);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+ }
+
+ BOOL ReadConsoleOutputA_impl(void* hConsoleOutput, PCHAR_INFO lpBuffer, COORD dwBufferSize, COORD dwBufferCoord, PSMALL_RECT lpReadRegion)
+ {
+    printf("(unimplemented) ReadConsoleOutputA\n");
+    return true;
+ }
+
+ EXPORT __attribute__((naked)) void ReadConsoleOutputA()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "movq %%rdx, %%rsi\n"
+        "movq %%r8, %%rdx\n"
+        "movq %%r9, %%rcx\n"
+        "callq *%0\n"
+        :
+        : "r"(ReadConsoleOutputA_impl)
+        :);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+BOOL GetConsoleCursorInfo_impl(void* hConsoleOutput, PCONSOLE_CURSOR_INFO lpConsoleCursorInfo)
+{
+    printf("GetConsoleCursorInfo(hConsoleOutput=%p, lpConsoleCursorInfo=%p)\n", hConsoleOutput, lpConsoleCursorInfo);
+    CONSOLE_CURSOR_INFO cursorInfo;
+    cursorInfo.dwSize = 100;
+    cursorInfo.bVisible = true;
+    *lpConsoleCursorInfo = cursorInfo;
+    return true;
+}
+
+EXPORT __attribute__((naked)) void GetConsoleCursorInfo()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "movq %%rdx, %%rsi\n"
+        "callq *%0\n"
+        :
+        : "r"(GetConsoleCursorInfo_impl)
+        :);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+BOOL SetConsoleCursorInfo_impl(void* hConsoleOutput, const PCONSOLE_CURSOR_INFO lpConsoleCursorInfo)
+{
+    printf("SetConsoleCursorInfo(hConsoleOutput=%p, lpConsoleCursorInfo.dwSize=%d, lpConsoleCursorInfo.bVisible=%d)\n", hConsoleOutput, lpConsoleCursorInfo->dwSize, lpConsoleCursorInfo->bVisible);
+    #define CSI "\e["
+    if (lpConsoleCursorInfo->bVisible)
+    {
+        fputs(CSI "?25h", stdout);
+    }
+    else
+    {
+        fputs(CSI "?25l", stdout);
+    }
+    #undef CSI
+
+    return true;
+}
+
+EXPORT __attribute__((naked)) void SetConsoleCursorInfo()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "movq %%rdx, %%rsi\n"
+        "callq *%0\n"
+        :
+        : "r"(SetConsoleCursorInfo_impl)
+        :);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+BOOL SetConsoleScreenBufferSize_impl(void* hConsoleOutput, COORD dwSize)
+{
+    printf("SetConsoleScreenBufferSize_impl(hConsoleOutput=%p, dwSize={%d, %d})\n", hConsoleOutput, dwSize.X, dwSize.Y);
+    printf("\e[8;%d;%dt", dwSize.Y, dwSize.X);
+    return true;
+}
+
+EXPORT __attribute__((naked)) void SetConsoleScreenBufferSize()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "movq %%rdx, %%rsi\n"
+        "callq *%0\n"
+        :
+        : "r"(SetConsoleScreenBufferSize_impl)
+        :);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+BOOL SetConsoleWindowInfo_impl(void* hConsoleOutput, BOOL bAbsolute, const SMALL_RECT* lpConsoleWindow)
+{
+    printf("SetConsoleWindowInfo(hConsoleOutput=%p, hAbsolute=%d, lpConsoleWindow=%p)\n", hConsoleOutput, (int)bAbsolute, lpConsoleWindow);
+    printf("\tL=%d, R=%d, T=%d, B=%d\n", lpConsoleWindow->Left, lpConsoleWindow->Right, lpConsoleWindow->Top, lpConsoleWindow->Bottom);
+    COORD dwSize = {.X = static_cast<SHORT>(lpConsoleWindow->Right - lpConsoleWindow->Left), .Y = static_cast<SHORT>(lpConsoleWindow->Bottom - lpConsoleWindow->Top)};
+    printf("\e[8;%d;%dt", dwSize.Y, dwSize.X);
+    return true;
+}
+
+EXPORT __attribute__((naked)) void SetConsoleWindowInfo()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "movq %%rdx, %%rsi\n"
+        "movq %%r8, %%rdx\n"
+        "callq *%0\n"
+        :
+        : "r"(SetConsoleWindowInfo_impl)
+        :);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+BOOL WriteConsoleOutputA_impl(void* hConsoleOutput, const CHAR_INFO* lpBuffer, COORD dwBufferSize, COORD dwBufferCoord, PSMALL_RECT lpWriteRegion)
+{
+    printf("\x1B[%d;%dH", lpWriteRegion->Top, lpWriteRegion->Left);
+    for (size_t i = 0; i < dwBufferSize.X * dwBufferSize.Y; ++i)
+    {
+        if (i % dwBufferSize.X == 0 && i > 0)
+        {
+            printf("\n");
+        }
+        printf("%c", lpBuffer[i].Char.AsciiChar);
+    }
+    return true;
+}
+
+EXPORT __attribute__((naked)) void WriteConsoleOutputA()
+{
+    asm("movq 0x28(%rsp), %rax\n");
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "movq %%rdx, %%rsi\n"
+        "movq %%r8, %%rdx\n"
+        "movq %%r9, %%rcx\n"
+        "movq %%rax, %%r8\n"
+        "callq *%0\n"
+        :
+        : "r"(WriteConsoleOutputA_impl)
+        :"rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9");
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+uint64_t header_addr = -1;
+EXPORT uint64_t ___get_header()
+{
+    return header_addr;
 }
 
 __attribute__((constructor)) void start()
@@ -256,7 +438,8 @@ __attribute__((constructor)) void start()
     const std::map<std::string, uintptr_t> import_name_to_fn = {
         IMPORT_ENTRY(Sleep), IMPORT_ENTRY(ExitProcess), IMPORT_ENTRY(EnterCriticalSection), IMPORT_ENTRY(DeleteCriticalSection),
         IMPORT_ENTRY(LeaveCriticalSection), IMPORT_ENTRY(GetLastError), IMPORT_ENTRY(InitializeCriticalSection), IMPORT_ENTRY(SetUnhandledExceptionFilter),
-        IMPORT_ENTRY(VirtualQuery), IMPORT_ENTRY(VirtualProtect), 
+        IMPORT_ENTRY(VirtualQuery), IMPORT_ENTRY(VirtualProtect), IMPORT_ENTRY(GetStdHandle), IMPORT_ENTRY(ReadConsoleOutputA), IMPORT_ENTRY(GetConsoleCursorInfo),
+        IMPORT_ENTRY(SetConsoleCursorInfo), IMPORT_ENTRY(SetConsoleScreenBufferSize), IMPORT_ENTRY(SetConsoleWindowInfo), IMPORT_ENTRY(WriteConsoleOutputA), 
     };
     #undef IMPORT_ENTRY
 
@@ -290,6 +473,7 @@ __attribute__((constructor)) void start()
         throw std::runtime_error("custom entry code size has changed -- update kernel32 to work with the new code");
     }
 
+    header_addr = header_cmd->addr;
     uint32_t memcpy_offset = reinterpret_cast<uintptr_t>(__memcpy_kernel32_startup_impl) - (entry_cmd->addr + 0x1e) - 5;
     printf("kernel32: patching memcpy into entry\n");
     memcpy(reinterpret_cast<void*>(entry_cmd->addr + 0x1f), &memcpy_offset, sizeof(memcpy_offset));

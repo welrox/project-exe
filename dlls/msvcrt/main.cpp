@@ -277,7 +277,7 @@ EXPORT __attribute__((naked)) void _strlen()
 
 void* memcpy_impl(void* dest, const void* src, size_t count)
 {
-    printf("memcpy(dest=%p, src=%p, count=%zu)\n", dest, src, count);
+    //printf("memcpy(dest=%p, src=%p, count=%zu)\n", dest, src, count);
     return memcpy(dest, src, count);
 }
 
@@ -549,6 +549,40 @@ EXPORT int _getch()
     return fgetc(stdin);
 }
 
+void* memset_impl(void* dest, int c, size_t count)
+{
+    return memset(dest, c, count);
+}
+
+EXPORT __attribute__((naked)) void _memset()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "movq %%rdx, %%rsi\n"
+        "movq %%r8, %%rdx\n"
+        "callq *%0\n"
+        : : "r"(memset_impl):);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+void* memmove_impl(void* dst, const void* src, size_t count)
+{
+    return memmove(dst, src, count);
+}
+
+EXPORT __attribute__((naked)) void _memmove()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "movq %%rdx, %%rsi\n"
+        "movq %%r8, %%rdx\n"
+        "callq *%0\n"
+        : : "r"(memmove_impl):);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
 __attribute__((constructor)) void start(int argc, char** argv, char** env)
 {
     printf("msvcrt starting!\n");
@@ -568,7 +602,7 @@ __attribute__((constructor)) void start(int argc, char** argv, char** env)
         IMPORT_ENTRY(_unlock_file), {"_exit", PTR(___exit)}, {"exit", PTR(__exit)},
         IMPORT_ENTRY(__stdio_common_vfprintf), {"abort", PTR(_abort)}, {"fwrite", PTR(_fwrite)},
         IMPORT_ENTRY(_time64), {"srand", PTR(_srand)}, {"rand", PTR(_rand)}, {"system", PTR(_system)}, IMPORT_ENTRY(_kbhit),
-        IMPORT_ENTRY(_getch),
+        IMPORT_ENTRY(_getch), {"memset", PTR(_memset)}, {"memmove", PTR(_memmove)}, 
     };
     #undef IMPORT_ENTRY
     #undef PTR

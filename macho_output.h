@@ -125,13 +125,13 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
             no_ext = "msvcrt";
         }
 
+        std::transform(no_ext.begin(), no_ext.end(), no_ext.begin(),
+            [](unsigned char c){ return std::tolower(c); });
+
         std::string dylib_name = no_ext + ".dylib";
 
         if (dylib_name.find("lib") != 0)
             dylib_name = std::string("lib") + dylib_name;
-        
-        std::transform(dylib_name.begin(), dylib_name.end(), dylib_name.begin(),
-            [](unsigned char c){ return std::tolower(c); });
 
         if (loaded_dylibs.find(no_ext) != loaded_dylibs.end())
             continue;

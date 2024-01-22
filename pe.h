@@ -1,8 +1,10 @@
 #pragma once
 #include <cstdint>
 
+typedef int BOOL;
 typedef int8_t CHAR;
 typedef uint8_t BYTE;
+typedef int16_t SHORT;
 typedef int32_t LONG;
 typedef uint16_t WORD;
 typedef uint32_t DWORD;
@@ -363,3 +365,28 @@ typedef struct _MEMORY_BASIC_INFORMATION {
   DWORD  Protect;
   DWORD  Type;
 } MEMORY_BASIC_INFORMATION, *PMEMORY_BASIC_INFORMATION;
+
+typedef struct _CHAR_INFO {
+  union {
+    WCHAR UnicodeChar;
+    CHAR  AsciiChar;
+  } Char;
+  WORD  Attributes;
+} CHAR_INFO, *PCHAR_INFO;
+
+typedef struct _COORD {
+  SHORT X;
+  SHORT Y;
+} COORD, *PCOORD;
+
+typedef struct _SMALL_RECT {
+  SHORT Left;
+  SHORT Top;
+  SHORT Right;
+  SHORT Bottom;
+} SMALL_RECT, *PSMALL_RECT;
+
+typedef struct _CONSOLE_CURSOR_INFO {
+  DWORD dwSize;
+  BOOL  bVisible;
+} CONSOLE_CURSOR_INFO, *PCONSOLE_CURSOR_INFO;
