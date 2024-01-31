@@ -262,7 +262,7 @@ EXPORT __attribute__((naked)) void _set_invalid_parameter_handler()
 
 size_t strlen_impl(const char* str)
 {
-    printf("strlen(str=%s)\n", str);
+    //printf("strlen(str=%s)\n", str);
     return strlen(str);
 }
 
@@ -499,7 +499,7 @@ EXPORT __attribute__((naked)) void _srand()
 
 EXPORT int _rand()
 {
-    printf("rand()\n");
+    //printf("rand()\n");
     return rand();
 }
 

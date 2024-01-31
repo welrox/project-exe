@@ -90,7 +90,7 @@ EXPORT __attribute__((naked)) void _ZNSt7__cxx1112basic_stringIcSt11char_traitsI
 
 void _ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEaSEPKc_impl(string* self, char* const str)
 {
-    printf("std::string operator=(self=%p, str=%s)\n", self, str);
+    //printf("std::string operator=(self=%p, str=%s)\n", self, str);
     if (reinterpret_cast<uintptr_t>(self->data) != reinterpret_cast<uintptr_t>(&self->capacity))
         operator delete(self->data);
 
@@ -432,15 +432,15 @@ EXPORT __attribute__((naked)) void _ZStlsISt11char_traitsIcEERSt13basic_ostreamI
 
 int __cxa_guard_acquire_impl(uint64_t guard)
 {
-    printf("__cxa_guard_acquire(guard=0x%llx)\n", guard);
+    //printf("__cxa_guard_acquire(guard=0x%llx)\n", guard);
     static std::set<uint64_t> initialized;
     if (initialized.find(guard) == initialized.end())
     {
         initialized.insert(guard);
-        printf("\tret=1\n");
+        //printf("\tret=1\n");
         return 1;
     }
-    printf("\tret=0\n");
+    //printf("\tret=0\n");
     return 0;
 }
 

@@ -13,6 +13,7 @@
 #include <sys/mman.h>
 #include "../../pe.h"
 #include "../asm.h"
+#include "../cp437.h"
 #define EXPORT extern "C" __attribute__((visibility("default")))
 
 void Sleep_impl(int32_t milliseconds)
@@ -403,7 +404,11 @@ BOOL WriteConsoleOutputA_impl(void* hConsoleOutput, const CHAR_INFO* lpBuffer, C
         {
             printf("\n");
         }
-        printf("%c", lpBuffer[i].Char.AsciiChar);
+        CHAR ch = lpBuffer[i].Char.AsciiChar;
+        if (cp437.find(ch) != cp437.end())
+            printf("%s", cp437[ch]);
+        else
+            printf("%c", ch);
     }
     return true;
 }
