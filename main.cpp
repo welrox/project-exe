@@ -23,7 +23,11 @@ int main(int argc, char* argv[])
     EXE_Parser64 parser;
     std::cout << "Parsing exe...\n";
     bool result = parser.parse(argv[1]);
-    std::cout << "\nResult of parse: " << result << '\n';
+    if (!result)
+    {
+        std::cerr << "Failed to parse file\n";
+        return 1;
+    }
 
     std::cout << "\ncreating mach-o binary\n\n";
     output_macho_file("./out", parser);

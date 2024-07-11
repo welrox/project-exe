@@ -70,6 +70,12 @@ class EXE_Parser64
 
         std::cout << "Signature: 0x" << std::hex << nt_header->Signature << std::dec << "\n\n";
         std::cout << "FileHeader.Machine: " << nt_header->FileHeader.Machine << '\n';
+        if (nt_header->FileHeader.Machine != 0x8664)
+        {
+            std::cerr << "Unsupported file format: executable is not 64 bits\n";
+            delete[] file_buffer;
+            return false;
+        }
         std::cout << "FileHeader.NumberOfSections: " << nt_header->FileHeader.NumberOfSections << '\n';
         std::cout << "FileHeader.TimeDateStamp: " << nt_header->FileHeader.TimeDateStamp << '\n';
         std::cout << "FileHeader.PointerToSymbolTable: " << nt_header->FileHeader.PointerToSymbolTable << '\n';
@@ -144,24 +150,14 @@ class EXE_Parser64
                 import_section = section_header;
             }
 
-            if (section_header->SizeOfRawData > 0)
             {
-                std::vector<char> data(file_buffer + section_header->PointerToRawData, file_buffer + section_header->PointerToRawData + section_header->Misc.VirtualSize);
+                std::vector<char> data(file_buffer + section_header->PointerToRawData,
+                                       file_buffer + section_header->PointerToRawData + std::min(section_header->Misc.VirtualSize, section_header->SizeOfRawData));
                 section_data[section_header] = data;
                 sections.push_back(section_header);
                 printf("%s:\n", section_header->Name);
-                for (int i = 0; i < 0x10; ++i)
+                for (int i = 0; i < 0x10 && i < data.size(); ++i)
                     printf("%x ", (int)data[i]);
-                printf("\n");
-            }
-            else
-            {
-                std::vector<char> data(section_header->Misc.VirtualSize);
-                for (char& c : data)
-                    c = 0;
-                section_data[section_header] = data;
-                sections.push_back(section_header);
-                printf("%s: 0x%zx zeros\n", section_header->Name, data.size());
                 printf("\n");
             }
         }

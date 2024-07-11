@@ -467,13 +467,6 @@ EXPORT __attribute__((naked)) void ___cxa_guard_release()
     asm("retq\n");
 }
 
-EXPORT void unimplemented()
-{
-    void* address;
-    asm("movq 8(%%rbp), %0":"=r"(address):);
-    printf("*** unimplemented libstdc++-6 function (return=%p)***\n", address);
-}
-
 void __attribute__((constructor)) start()
 {
     printf("libstdc++-6 starting!\n");
@@ -508,6 +501,12 @@ void __attribute__((constructor)) start()
     if (!import_cmd)
     {
         printf("libstdc++-6 error: could not find section __import, exiting\n");
+        std::exit(1);
+    }
+    const struct section_64* header_cmd = getsectbyname("__TEXT", "__header");
+    if (!header_cmd)
+    {
+        printf("user32 error: could not find section __header, exiting\n");
         std::exit(1);
     }
 
@@ -548,7 +547,38 @@ void __attribute__((constructor)) start()
                 else
                 {
                     printf("libstdc++-6: warning: unimplemented function %s\n", import_fn_name.c_str());
-                    *thunk = reinterpret_cast<uintptr_t>(unimplemented);
+                    const BYTE unimplemented_fn_code[] = "\x48\x8B\x34\x24\x48\xBF\x00\x00\x00\x00\x00\x00\x00\x00\xB0\x00\x53\x48\xBB\x00\x00\x00\x00\x00\x00\x00\x00\xFF\xD3\x5B\xC3";
+                    uintptr_t printf_address = (uintptr_t)printf;
+                    const char msg1[] = "*** unimplemented libstdc++-6 function: ";
+                    char* unimplemented_fn_msg = (char*)mmap(nullptr, 256, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+                    if ((intptr_t)unimplemented_fn_msg == -1)
+                    {
+                        perror("mmap failed");
+                        std::exit(1);
+                    }
+                    memset(unimplemented_fn_msg, 0, 256);
+                    strcpy(unimplemented_fn_msg, msg1);
+                    strcpy(unimplemented_fn_msg + strlen(msg1), (import_fn_name + " : return address %p\n").c_str());
+                    char* data = (char*)mmap(nullptr, 256, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+                    if ((intptr_t)data == -1)
+                    {
+                        perror("mmap failed");
+                        std::exit(1);
+                    }
+                    if (mprotect((void*)((uintptr_t)data & ~(0x1000ul - 1ul)), 0x1000, PROT_READ | PROT_WRITE) == -1)
+                    {
+                        perror("mprotect failed");
+                        std::exit(1);
+                    }
+                    memcpy(data, unimplemented_fn_code, sizeof(unimplemented_fn_code) - 1);
+                    memcpy(data + 6, &unimplemented_fn_msg, sizeof(const char*));
+                    memcpy(data + 0x13, &printf_address, sizeof(printf_address));
+                    if (mprotect((void*)((uintptr_t)data & ~(0x1000ul - 1ul)), 0x1000, PROT_READ | PROT_EXEC) == -1)
+                    {
+                        perror("mprotect failed");
+                        std::exit(1);
+                    }
+                    *thunk = reinterpret_cast<uintptr_t>(data);
                 }
             }
         }

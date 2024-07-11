@@ -366,9 +366,9 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     main.entryoff = custom_entry_fileoff;
     memcpy(buffer + main_offset + ((uintptr_t)&(main.entryoff) - (uintptr_t)&main), &main.entryoff, sizeof(main.entryoff));
     
-    std::ofstream out_stream("out", std::ios::binary);
+    std::ofstream out_stream(out_path, std::ios::binary);
     out_stream.write(buffer, buffer_size);
 
-    std::cout << "wrote to output\n";
+    std::cout << "wrote to " << out_path << '\n';
     delete[] buffer;
 }
