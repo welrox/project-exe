@@ -90,7 +90,6 @@ EXPORT __attribute__((naked)) void _ZNSt7__cxx1112basic_stringIcSt11char_traitsI
 
 void _ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEaSEPKc_impl(string* self, char* const str)
 {
-    //printf("std::string operator=(self=%p, str=%s)\n", self, str);
     if (reinterpret_cast<uintptr_t>(self->data) != reinterpret_cast<uintptr_t>(&self->capacity))
         operator delete(self->data);
 
@@ -432,15 +431,12 @@ EXPORT __attribute__((naked)) void _ZStlsISt11char_traitsIcEERSt13basic_ostreamI
 
 int __cxa_guard_acquire_impl(uint64_t guard)
 {
-    //printf("__cxa_guard_acquire(guard=0x%llx)\n", guard);
     static std::set<uint64_t> initialized;
     if (initialized.find(guard) == initialized.end())
     {
         initialized.insert(guard);
-        //printf("\tret=1\n");
         return 1;
     }
-    //printf("\tret=0\n");
     return 0;
 }
 
@@ -455,7 +451,7 @@ EXPORT __attribute__((naked)) void ___cxa_guard_acquire()
 
 void __cxa_guard_release_impl(uint64_t guard)
 {
-    printf("__cxa_guard_release(guard=0x%llx)\n", guard);
+    printf("(not implemented) __cxa_guard_release(guard=0x%llx)\n", guard);
 }
 
 EXPORT __attribute__((naked)) void ___cxa_guard_release()
@@ -547,9 +543,23 @@ void __attribute__((constructor)) start()
                 else
                 {
                     printf("libstdc++-6: warning: unimplemented function %s\n", import_fn_name.c_str());
-                    const BYTE unimplemented_fn_code[] = "\x48\x8B\x34\x24\x48\xBF\x00\x00\x00\x00\x00\x00\x00\x00\xB0\x00\x53\x48\xBB\x00\x00\x00\x00\x00\x00\x00\x00\xFF\xD3\x5B\xC3";
+
+                    // Replace the unimplemented import with a function that prints its name for convenience
+                    const BYTE unimplemented_fn_code[] = 
+                    "\x48\x8B\x34\x24"                         // 00: mov    rsi, return_address (2nd argument for printf)
+                    "\x48\xBF\x00\x00\x00\x00\x00\x00\x00\x00" // 04: movabs rdi, format_string (format string for printf)
+                    "\xB0\x00"                                 // 0e: mov al, 0x0 (number of float args for System V calling conv)
+                    "\x53"                                     // 10: push rbx
+                    "\x48\xBB\x00\x00\x00\x00\x00\x00\x00\x00" // 11: movabs rbx, printf
+                    "\xFF\xD3"                                 // 1b: call rbx
+                    "\x5B"                                     // 1d: pop rbx
+                    "\xC3"                                     // 1e: ret
+                    ;
+
                     uintptr_t printf_address = (uintptr_t)printf;
-                    const char msg1[] = "*** unimplemented libstdc++-6 function: ";
+
+                    // Construct the format string
+                    const char msg1[] = "*** unimplemented kernel32 function: ";
                     char* unimplemented_fn_msg = (char*)mmap(nullptr, 256, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
                     if ((intptr_t)unimplemented_fn_msg == -1)
                     {
@@ -559,26 +569,33 @@ void __attribute__((constructor)) start()
                     memset(unimplemented_fn_msg, 0, 256);
                     strcpy(unimplemented_fn_msg, msg1);
                     strcpy(unimplemented_fn_msg + strlen(msg1), (import_fn_name + " : return address %p\n").c_str());
-                    char* data = (char*)mmap(nullptr, 256, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-                    if ((intptr_t)data == -1)
+
+                    // Allocate the buffer for the unimplemented function
+                    char* unimplemented_fn_buffer = (char*)mmap(nullptr, 256, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+                    if ((intptr_t)unimplemented_fn_buffer == -1)
                     {
                         perror("mmap failed");
                         std::exit(1);
                     }
-                    if (mprotect((void*)((uintptr_t)data & ~(0x1000ul - 1ul)), 0x1000, PROT_READ | PROT_WRITE) == -1)
+
+                    if (mprotect((void*)((uintptr_t)unimplemented_fn_buffer & ~(0x1000ul - 1ul)), 0x1000, PROT_READ | PROT_WRITE) == -1)
                     {
                         perror("mprotect failed");
                         std::exit(1);
                     }
-                    memcpy(data, unimplemented_fn_code, sizeof(unimplemented_fn_code) - 1);
-                    memcpy(data + 6, &unimplemented_fn_msg, sizeof(const char*));
-                    memcpy(data + 0x13, &printf_address, sizeof(printf_address));
-                    if (mprotect((void*)((uintptr_t)data & ~(0x1000ul - 1ul)), 0x1000, PROT_READ | PROT_EXEC) == -1)
+
+                    // Do the necessary patching
+                    memcpy(unimplemented_fn_buffer, unimplemented_fn_code, sizeof(unimplemented_fn_code) - 1);
+                    memcpy(unimplemented_fn_buffer + 6, &unimplemented_fn_msg, sizeof(const char*));
+                    memcpy(unimplemented_fn_buffer + 0x13, &printf_address, sizeof(printf_address));
+
+                    if (mprotect((void*)((uintptr_t)unimplemented_fn_buffer & ~(0x1000ul - 1ul)), 0x1000, PROT_READ | PROT_EXEC) == -1)
                     {
                         perror("mprotect failed");
                         std::exit(1);
                     }
-                    *thunk = reinterpret_cast<uintptr_t>(data);
+
+                    *thunk = reinterpret_cast<uintptr_t>(unimplemented_fn_buffer);
                 }
             }
         }

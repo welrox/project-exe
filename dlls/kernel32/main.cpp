@@ -1,5 +1,7 @@
 #include <iostream>
 #include <map>
+#include <locale>
+#include <codecvt>
 #include <mach-o/getsect.h>
 #include <mach-o/dyld.h>
 #include <mach/mach.h>
@@ -18,7 +20,6 @@
 
 void Sleep_impl(int32_t milliseconds)
 {
-    //printf("Sleep(%d)\n", milliseconds);
     std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
 }
 
@@ -70,7 +71,7 @@ EXPORT __attribute__((naked)) void ExitProcess()
 
 void EnterCriticalSection_impl(void* lpCriticalSection)
 {
-    printf("EnterCriticalSection(lpCriticalSection=%p)\n", lpCriticalSection);
+    printf("(not implemented) EnterCriticalSection(lpCriticalSection=%p)\n", lpCriticalSection);
 }
 
 EXPORT __attribute__((naked)) void EnterCriticalSection()
@@ -89,7 +90,7 @@ EXPORT __attribute__((naked)) void EnterCriticalSection()
 
 void DeleteCriticalSection_impl(void* lpCriticalSection)
 {
-    printf("DeleteCriticalSection(lpCriticalSection=%p)\n", lpCriticalSection);
+    printf("(not implemented) DeleteCriticalSection(lpCriticalSection=%p)\n", lpCriticalSection);
 }
 
 EXPORT __attribute__((naked)) void DeleteCriticalSection()
@@ -108,7 +109,7 @@ EXPORT __attribute__((naked)) void DeleteCriticalSection()
 
 void LeaveCriticalSection_impl(void* lpCriticalSection)
 {
-    printf("LeaveCriticalSection(lpCriticalSection=%p)\n", lpCriticalSection);
+    printf("(not implemented) LeaveCriticalSection(lpCriticalSection=%p)\n", lpCriticalSection);
 }
 
 EXPORT __attribute__((naked)) void LeaveCriticalSection()
@@ -127,7 +128,7 @@ EXPORT __attribute__((naked)) void LeaveCriticalSection()
 
 void InitializeCriticalSection_impl(void* lpCriticalSection)
 {
-    printf("InitializeCriticalSection(lpCriticalSection=%p)\n", lpCriticalSection);
+    printf("(not implemented) InitializeCriticalSection(lpCriticalSection=%p)\n", lpCriticalSection);
 }
 
 EXPORT __attribute__((naked)) void InitializeCriticalSection()
@@ -146,7 +147,7 @@ EXPORT __attribute__((naked)) void InitializeCriticalSection()
 
 void* SetUnhandledExceptionFilter_impl(void* lpTopLevelExceptionFilter)
 {
-    printf("SetUnhandledExceptionFilter(lpTopLevelExceptionFilter=%p)\n", lpTopLevelExceptionFilter);
+    printf("(not implemented) SetUnhandledExceptionFilter(lpTopLevelExceptionFilter=%p)\n", lpTopLevelExceptionFilter);
     return nullptr;
 }
 
@@ -165,7 +166,6 @@ EXPORT __attribute__((naked)) void SetUnhandledExceptionFilter()
 
 SIZE_T VirtualQuery_impl(const void* lpAddress, PMEMORY_BASIC_INFORMATION lpBuffer, SIZE_T dwLength)
 {
-    //lpAddress = reinterpret_cast<const void*>(reinterpret_cast<uintptr_t>(lpAddress) + 0x1000);
     printf("VirtualQuery(lpAddress=%p, lpBuffer=%p, dwLength=%zu)\n", lpAddress, lpBuffer, dwLength);
     vm_size_t size = 0;
     vm_region_flavor_t flavor = VM_REGION_BASIC_INFO_64;
@@ -209,8 +209,7 @@ EXPORT __attribute__((naked)) void VirtualQuery()
 
 bool VirtualProtect_impl(LPVOID lpAddress, SIZE_T dwSize, DWORD flNewProtect, DWORD* lpflOldProtect)
 {
-    printf("VirtualProtect(lpAddress=%p, dwSize=%zu, flNewProtect=0x%x, lpflOldProtect=%p)\n", lpAddress, dwSize, flNewProtect, lpflOldProtect);
-    // not implemented
+    printf("(not implemented) VirtualProtect(lpAddress=%p, dwSize=%zu, flNewProtect=0x%x, lpflOldProtect=%p)\n", lpAddress, dwSize, flNewProtect, lpflOldProtect);
     return true;
 }
 
@@ -227,13 +226,6 @@ EXPORT __attribute__((naked)) void VirtualProtect()
         : "rcx", "rdi");
     POP_ALL_REGS_EXCEPT_RAX;
     asm("retq\n");
-}
-
-void unimplemented_fn()
-{
-    void* address;
-    asm("movq 8(%%rbp), %0":"=r"(address):);
-    printf("*** unimplemented kernel32 function (return=%p)***\n", address);
 }
 
 DWORD last_error = 0;
@@ -263,7 +255,7 @@ void __memcpy_kernel32_startup_impl(void* dst, const void* src, size_t size)
 
 void* GetStdHandle_impl(DWORD nStdHandle)
 {
-    printf("GetStdHandle(nStdHandle=%d)\n", static_cast<signed int>(nStdHandle));
+    printf("(not implemented) GetStdHandle(nStdHandle=%d)\n", static_cast<signed int>(nStdHandle));
     return reinterpret_cast<void*>(0xdeadfacefeedbeef);
 }
 
@@ -281,7 +273,7 @@ void* GetStdHandle_impl(DWORD nStdHandle)
 
  BOOL ReadConsoleOutputA_impl(void* hConsoleOutput, PCHAR_INFO lpBuffer, COORD dwBufferSize, COORD dwBufferCoord, PSMALL_RECT lpReadRegion)
  {
-    printf("(unimplemented) ReadConsoleOutputA\n");
+    printf("(not implemented) ReadConsoleOutputA\n");
     return true;
  }
 
@@ -437,6 +429,117 @@ EXPORT uint64_t ___get_header()
     return header_addr;
 }
 
+void GetSystemTimeAsFileTime_impl(uint64_t* lpSystemTimeAsFileTime)
+{
+    printf("GetSystemTimeAsFileTime(%p)\n", lpSystemTimeAsFileTime);
+    time_t t = time(nullptr);
+    printf(" return = %ld\n", t);
+}
+
+EXPORT __attribute__((naked)) void GetSystemTimeAsFileTime()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n"
+        :
+        : "r"(GetSystemTimeAsFileTime_impl)
+        :);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+EXPORT DWORD GetCurrentThreadId()
+{
+    printf("(not implemented) GetCurrentThreadId()\n");
+    return 1;
+}
+
+EXPORT DWORD GetCurrentProcessId()
+{
+    printf("(not implemented) GetCurrentProcessId()\n");
+    return 1;
+}
+
+BOOL QueryPerformanceCounter_impl(int64_t *lpPerformanceCount)
+{
+    printf("QueryPerformanceCounter(%p)\n", lpPerformanceCount);
+    timespec tp;
+    BOOL result = 0;
+    if (clock_gettime(CLOCK_MONOTONIC, &tp) == -1)
+    {
+        perror("QueryPerformanceCounter: clock_gettime failed: ");
+    }
+    else
+    {
+        result = 1;
+        long calculation = tp.tv_sec * 1'000'000'000 + tp.tv_nsec;
+        *lpPerformanceCount = calculation;
+        printf(" %ld\n", calculation);
+    }
+    return result;
+}
+
+EXPORT __attribute__((naked)) void QueryPerformanceCounter()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "callq *%0\n"
+        :
+        : "r"(QueryPerformanceCounter_impl)
+        :);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+void* LoadLibraryExW_impl(const char16_t* lpLibFileName, void* hFile, DWORD dwFlags)
+{
+    std::wstring_convert<std::codecvt_utf8_utf16<char16_t>,char16_t> cvt;
+    std::string file_name = cvt.to_bytes(lpLibFileName);
+    printf("LoadLibraryExW(%s, %p, %u)\n", file_name.c_str(), hFile, dwFlags);
+
+    if (file_name.starts_with("api-ms-win") || file_name == "kernel32")
+    {
+        printf(" returning kernel32 handle\n");
+        return (void*)1;
+    }
+
+    printf(" returning null\n");
+    return nullptr;
+}
+
+EXPORT __attribute__((naked)) void LoadLibraryExW()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "movq %%rdx, %%rsi\n"
+        "movq %%r8, %%rdx\n"
+        "callq *%0\n"
+        :
+        : "r"(LoadLibraryExW_impl)
+        :);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
+void* GetProcAddress_impl(void* hModule, const char* lpProcName)
+{
+    printf("(not implemented) GetProcAddress(%p, %s)\n", hModule, lpProcName);
+    return nullptr;
+}
+
+EXPORT __attribute__((naked)) void GetProcAddress()
+{
+    PUSH_ALL_REGS_EXCEPT_RAX;
+    asm("movq %%rcx, %%rdi\n"
+        "movq %%rdx, %%rsi\n"
+        "callq *%0\n"
+        :
+        : "r"(GetProcAddress_impl)
+        :);
+    POP_ALL_REGS_EXCEPT_RAX;
+    asm("retq\n");
+}
+
 __attribute__((constructor)) void start()
 {
     printf("kernel32 starting!\n");
@@ -445,7 +548,9 @@ __attribute__((constructor)) void start()
         IMPORT_ENTRY(Sleep), IMPORT_ENTRY(ExitProcess), IMPORT_ENTRY(EnterCriticalSection), IMPORT_ENTRY(DeleteCriticalSection),
         IMPORT_ENTRY(LeaveCriticalSection), IMPORT_ENTRY(GetLastError), IMPORT_ENTRY(InitializeCriticalSection), IMPORT_ENTRY(SetUnhandledExceptionFilter),
         IMPORT_ENTRY(VirtualQuery), IMPORT_ENTRY(VirtualProtect), IMPORT_ENTRY(GetStdHandle), IMPORT_ENTRY(ReadConsoleOutputA), IMPORT_ENTRY(GetConsoleCursorInfo),
-        IMPORT_ENTRY(SetConsoleCursorInfo), IMPORT_ENTRY(SetConsoleScreenBufferSize), IMPORT_ENTRY(SetConsoleWindowInfo), IMPORT_ENTRY(WriteConsoleOutputA), 
+        IMPORT_ENTRY(SetConsoleCursorInfo), IMPORT_ENTRY(SetConsoleScreenBufferSize), IMPORT_ENTRY(SetConsoleWindowInfo), IMPORT_ENTRY(WriteConsoleOutputA),
+        IMPORT_ENTRY(GetSystemTimeAsFileTime), IMPORT_ENTRY(GetCurrentThreadId), IMPORT_ENTRY(GetCurrentProcessId), IMPORT_ENTRY(QueryPerformanceCounter),
+        IMPORT_ENTRY(LoadLibraryExW), IMPORT_ENTRY(GetProcAddress),
     };
     #undef IMPORT_ENTRY
 
@@ -499,7 +604,6 @@ __attribute__((constructor)) void start()
     }
 
     printf("kernel32: __base vmaddr: 0x%llx, size = 0x%llx\n", base_cmd->addr, base_cmd->size);
-    printf("kernel32: __import vmaddr: 0x%llx\n", import_cmd->addr);
     printf("kernel32: parsing imports\n");
     for (IMAGE_IMPORT_DESCRIPTOR* import_descriptor = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(import_cmd->addr + exe_slide);
     import_descriptor->OriginalFirstThunk != 0; import_descriptor++)
@@ -529,8 +633,22 @@ __attribute__((constructor)) void start()
                 else
                 {
                     printf("kernel32: warning: unimplemented function %s\n", import_fn_name.c_str());
-                    const BYTE unimplemented_fn_code[] = "\x48\x8B\x34\x24\x48\xBF\x00\x00\x00\x00\x00\x00\x00\x00\xB0\x00\x53\x48\xBB\x00\x00\x00\x00\x00\x00\x00\x00\xFF\xD3\x5B\xC3";
+
+                    // Replace the unimplemented import with a function that prints its name for convenience
+                    const BYTE unimplemented_fn_code[] = 
+                    "\x48\x8B\x34\x24"                         // 00: mov    rsi, return_address (2nd argument for printf)
+                    "\x48\xBF\x00\x00\x00\x00\x00\x00\x00\x00" // 04: movabs rdi, format_string (format string for printf)
+                    "\xB0\x00"                                 // 0e: mov al, 0x0 (number of float args for System V calling conv)
+                    "\x53"                                     // 10: push rbx
+                    "\x48\xBB\x00\x00\x00\x00\x00\x00\x00\x00" // 11: movabs rbx, printf
+                    "\xFF\xD3"                                 // 1b: call rbx
+                    "\x5B"                                     // 1d: pop rbx
+                    "\xC3"                                     // 1e: ret
+                    ;
+
                     uintptr_t printf_address = (uintptr_t)printf;
+
+                    // Construct the format string
                     const char msg1[] = "*** unimplemented kernel32 function: ";
                     char* unimplemented_fn_msg = (char*)mmap(nullptr, 256, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
                     if ((intptr_t)unimplemented_fn_msg == -1)
@@ -541,26 +659,33 @@ __attribute__((constructor)) void start()
                     memset(unimplemented_fn_msg, 0, 256);
                     strcpy(unimplemented_fn_msg, msg1);
                     strcpy(unimplemented_fn_msg + strlen(msg1), (import_fn_name + " : return address %p\n").c_str());
-                    char* data = (char*)mmap(nullptr, 256, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-                    if ((intptr_t)data == -1)
+
+                    // Allocate the buffer for the unimplemented function
+                    char* unimplemented_fn_buffer = (char*)mmap(nullptr, 256, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+                    if ((intptr_t)unimplemented_fn_buffer == -1)
                     {
                         perror("mmap failed");
                         std::exit(1);
                     }
-                    if (mprotect((void*)((uintptr_t)data & ~(0x1000ul - 1ul)), 0x1000, PROT_READ | PROT_WRITE) == -1)
+
+                    if (mprotect((void*)((uintptr_t)unimplemented_fn_buffer & ~(0x1000ul - 1ul)), 0x1000, PROT_READ | PROT_WRITE) == -1)
                     {
                         perror("mprotect failed");
                         std::exit(1);
                     }
-                    memcpy(data, unimplemented_fn_code, sizeof(unimplemented_fn_code) - 1);
-                    memcpy(data + 6, &unimplemented_fn_msg, sizeof(const char*));
-                    memcpy(data + 0x13, &printf_address, sizeof(printf_address));
-                    if (mprotect((void*)((uintptr_t)data & ~(0x1000ul - 1ul)), 0x1000, PROT_READ | PROT_EXEC) == -1)
+
+                    // Do the necessary patching
+                    memcpy(unimplemented_fn_buffer, unimplemented_fn_code, sizeof(unimplemented_fn_code) - 1);
+                    memcpy(unimplemented_fn_buffer + 6, &unimplemented_fn_msg, sizeof(const char*));
+                    memcpy(unimplemented_fn_buffer + 0x13, &printf_address, sizeof(printf_address));
+
+                    if (mprotect((void*)((uintptr_t)unimplemented_fn_buffer & ~(0x1000ul - 1ul)), 0x1000, PROT_READ | PROT_EXEC) == -1)
                     {
                         perror("mprotect failed");
                         std::exit(1);
                     }
-                    *thunk = reinterpret_cast<uintptr_t>(data);
+
+                    *thunk = reinterpret_cast<uintptr_t>(unimplemented_fn_buffer);
                 }
             }
         }
