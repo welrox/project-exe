@@ -1,9 +1,11 @@
-# How to Build (macOS only)
+# Building from Source
 Run the following commands:
 ```
 git clone https://github.com/welrox/project-exe/
 make
 ```
+
+Note: only macOS is supported for now
 # Usage
 ```
 ./project-exe [exe-path]
