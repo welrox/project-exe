@@ -4,7 +4,7 @@ project-exe: main.cpp exe_parser_64.h macho_output.h macho.h pe.h
 	g++ -Wall main.cpp -o project-exe -std=c++17
 
 dlls/kernel32/libkernel32.dylib: dlls/kernel32/main.cpp
-	g++ dlls/kernel32/main.cpp -arch x86_64 -o dlls/kernel32/libkernel32.dylib -shared -std=c++17 -O2
+	g++ dlls/kernel32/main.cpp -arch x86_64 -o dlls/kernel32/libkernel32.dylib -shared -std=c++20 -O2
 
 dlls/libstdc++-6/libstdc++-6.dylib: dlls/libstdc++-6/main.cpp
 	g++ dlls/libstdc++-6/main.cpp -arch x86_64 -o dlls/libstdc++-6/libstdc++-6.dylib -shared -std=c++17
