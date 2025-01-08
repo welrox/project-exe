@@ -3,6 +3,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <sstream>
 #include <cstdint>
 #include <cstring>
 #include <cassert>
@@ -41,188 +42,15 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     hdr.cputype = CPU_TYPE_X86_64;
     hdr.cpusubtype = 3;
     hdr.flags = MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL /*| MH_PIE*/;
-    hdr.filetype = MH_EXECUTE;
-    hdr.ncmds = 9;
+    hdr.filetype = MH_OBJECT;
+    hdr.ncmds = 4;
     hdr.reserved = 0;
     hdr.sizeofcmds = sizeof(segment_command_64);
     memcpy(output_buffer + current_offset, &hdr, sizeof(hdr));
     current_offset += sizeof(hdr);
 
     uint32_t total_cmd_size = 0;
-
-    segment_command_64 pagezero;
-    pagezero.cmd = LC_SEGMENT_64;
-    pagezero.cmdsize = sizeof(pagezero);
-    pagezero.flags = 0;
-    pagezero.initprot = 0;
-    pagezero.maxprot = 0;
-    pagezero.nsects = 0;
-    char pagezero_segname[] = "__PAGEZERO\0\0\0\0\0";
-    memcpy(pagezero.segname, pagezero_segname, 16);
-    pagezero.vmaddr = 0;
-    pagezero.vmsize = 0x1'0000'0000ull;
-    pagezero.fileoff = 0;
-    pagezero.filesize = 0;
-    memcpy(output_buffer + current_offset, &pagezero, sizeof(pagezero));
-    current_offset += sizeof(pagezero);
-    total_cmd_size += sizeof(pagezero);
-
-    segment_command_64 linkedit;
-    linkedit.cmd = LC_SEGMENT_64;
-    linkedit.cmdsize = sizeof(linkedit);
-    linkedit.flags = 0;
-    char linkedit_segname[] = "__LINKEDIT\0\0\0\0\0";
-    memcpy(linkedit.segname, linkedit_segname, 16);
-    linkedit.initprot = VM_PROT_READ;
-    linkedit.maxprot = VM_PROT_READ;
-    linkedit.nsects = 0;
-    linkedit.vmaddr = 0x1'0000'4000ull;
-    linkedit.vmsize = 0x4000;
-    linkedit.fileoff = buffer_size;
-    linkedit.filesize = 0;
-    memcpy(output_buffer + current_offset, &linkedit, sizeof(linkedit));
-    current_offset += sizeof(linkedit);
-    total_cmd_size += linkedit.cmdsize;
-
-
-    dylinker_command dylinker;
-    dylinker.cmd = LC_LOAD_DYLINKER;
-    const char dyld_str[] = "/usr/lib/dyld";
-    dylinker.name.offset = sizeof(dylinker);
-    dylinker.cmdsize = ROUND_UP(sizeof(dylinker) + sizeof(dyld_str), 0x10);
-    memcpy(output_buffer + current_offset, &dylinker, sizeof(dylinker));
-    current_offset += sizeof(dylinker);
-    memcpy(output_buffer + current_offset, dyld_str, sizeof(dyld_str));
-    current_offset += (dylinker.cmdsize - sizeof(dylinker));
-
-    total_cmd_size += dylinker.cmdsize;
-
-    dylib_command dylib;
-    dylib.cmd = LC_LOAD_DYLIB;
-    dylib.dylib.compatibility_version = 65536;
-    dylib.dylib.current_version = 87556096;
-    dylib.dylib.timestamp = 2;
-    const char dylib_name[] = "/usr/lib/libSystem.B.dylib";
-    dylib.dylib.name.offset = sizeof(dylib);
-    dylib.cmdsize = ROUND_UP(sizeof(dylib) + sizeof(dylib_name), 0x10);
-    std::cout << "dylib.cmdsize: " << dylib.cmdsize << ", " << ROUND_UP(dylib.cmdsize, 0x10) << '\n';
-    memcpy(output_buffer + current_offset, &dylib, sizeof(dylib));
-    current_offset += sizeof(dylib);
-    memcpy(output_buffer + current_offset, dylib_name, sizeof(dylib_name));
-    current_offset += (dylib.cmdsize - sizeof(dylib));
-    total_cmd_size += dylib.cmdsize;
-
-    std::set<std::string> loaded_dylibs;
-
-    for (auto& [dll, _] : parser.import_map)
-    {
-        if (strcasecmp(dll.c_str(), "kernel32.dll") == 0)
-            continue;
-        std::string name_without_extension = dll.substr(0, dll.size() - 4).c_str();
-        if (name_without_extension.find("api-ms-win-crt") != std::string::npos)
-        {
-            name_without_extension = "msvcrt";
-        }
-
-        std::transform(name_without_extension.begin(), name_without_extension.end(), name_without_extension.begin(),
-            [](unsigned char c){ return std::tolower(c); });
-
-        std::string dylib_name = name_without_extension + ".dylib";
-
-        if (dylib_name.find("lib") != 0)
-            dylib_name = std::string("lib") + dylib_name;
-
-        if (loaded_dylibs.find(name_without_extension) != loaded_dylibs.end())
-            continue;
-        
-        std::ifstream presence_test(std::string("dlls/") + name_without_extension + std::string("/") + dylib_name);
-        if (presence_test)
-        {
-            presence_test.close();
-
-            dylib_command dyl;
-            dyl.cmd = LC_LOAD_DYLIB;
-            dyl.dylib.compatibility_version = 65536;
-            dyl.dylib.current_version = 87556096;
-            dyl.dylib.timestamp = 2;
-
-            std::string dyl_name_str = std::string("@executable_path/dlls/") + name_without_extension + std::string("/") + dylib_name;
-            char dyl_name[dyl_name_str.size() + 1];
-            memcpy(dyl_name, dyl_name_str.data(), dyl_name_str.size());
-            dyl_name[dyl_name_str.size()] = '\0';
-
-            dyl.dylib.name.offset = sizeof(dyl);
-            dyl.cmdsize = ROUND_UP(sizeof(dyl) + sizeof(dyl_name), 0x10);
-            std::cout << "dyl.cmdsize: " << dyl.cmdsize << ", " << ROUND_UP(dyl.cmdsize, 0x10) << '\n';
-
-            memcpy(output_buffer + current_offset, &dyl, sizeof(dyl));
-            current_offset += sizeof(dyl);
-            memcpy(output_buffer + current_offset, dyl_name, sizeof(dyl_name));
-            current_offset += (dyl.cmdsize - sizeof(dyl));
-            total_cmd_size += dyl.cmdsize;
-
-            reinterpret_cast<mach_header_64*>(output_buffer)->ncmds++;
-            loaded_dylibs.insert(dylib_name);
-        }
-        else
-        {
-            printf("warning: could not find '%s'; this will likely cause a crash.\n", dylib_name.c_str());
-            printf(" Continue anyway? (y/[n]) ");
-            char ans = getchar();
-            if (tolower(ans) != 'y')
-            {
-                printf("Exiting.\n");
-                std::exit(1);
-            }
-        }
-    }
-
-    dylib_command kernel32;
-    kernel32.cmd = LC_LOAD_DYLIB;
-    kernel32.dylib.compatibility_version = 65536;
-    kernel32.dylib.current_version = 87556096;
-    kernel32.dylib.timestamp = 2;
-    const char kernel32_name[] = "@executable_path/dlls/kernel32/libkernel32.dylib";
-    kernel32.dylib.name.offset = sizeof(kernel32);
-    kernel32.cmdsize = ROUND_UP(sizeof(kernel32) + sizeof(kernel32_name), 0x10);
-    std::cout << "kernel32.cmdsize: " << kernel32.cmdsize << ", " << ROUND_UP(kernel32.cmdsize, 0x10) << '\n';
-    memcpy(output_buffer + current_offset, &kernel32, sizeof(kernel32));
-    current_offset += sizeof(kernel32);
-    memcpy(output_buffer + current_offset, kernel32_name, sizeof(kernel32_name));
-    current_offset += (kernel32.cmdsize - sizeof(kernel32));
-    total_cmd_size += kernel32.cmdsize;
-
-    symtab_command symtab;
-    symtab.cmd = LC_SYMTAB;
-    symtab.cmdsize = sizeof(symtab);
-    symtab.nsyms = 0;
-    symtab.symoff = 0;
-    symtab.stroff = 0;
-    symtab.strsize = 0;
-    memcpy(output_buffer + current_offset, &symtab, sizeof(symtab));
-    current_offset += sizeof(symtab);
-    total_cmd_size += symtab.cmdsize;
-
-    dysymtab_command dysymtab;
-    memset(&dysymtab, 0, sizeof(dysymtab));
-    dysymtab.cmd = LC_DYSYMTAB;
-    dysymtab.cmdsize = sizeof(dysymtab);
-    memcpy(output_buffer + current_offset, &dysymtab, sizeof(dysymtab));
-    current_offset += sizeof(dysymtab);
-    total_cmd_size += dysymtab.cmdsize;
-
-    size_t main_offset = current_offset;
-
-    entry_point_command main;
-    main.cmd = LC_MAIN;
-    main.cmdsize = sizeof(main);
-    main.entryoff = 69420;
-    main.stacksize = 0;
-    memcpy(output_buffer + current_offset, &main, sizeof(main));
-    current_offset += sizeof(main);
-
-    total_cmd_size += main.cmdsize;
-
+    size_t text_offset = current_offset;
     segment_command_64 text;
     text.cmd = LC_SEGMENT_64;
     text.cmdsize = sizeof(text);
@@ -243,6 +71,7 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
 
     // This section is here so that our dll implementations
     // can easily retrieve the base address of the __TEXT segment
+    // TODO: `ld` messes with section virtual addresses
     section_64 base;
     base.addr = text.vmaddr;
     base.align = 1;
@@ -250,7 +79,7 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     base.nreloc = 0;
     base.reloff = 0;
     base.offset = text.fileoff;
-    base.size = text.filesize;
+    base.size = 1;
     base.reserved1 = 0;
     base.reserved2 = 0;
     base.reserved3 = 0;
@@ -327,7 +156,7 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     import.nreloc = 0;
     import.reloff = 0;
     import.offset = import_section_fileoff;
-    import.size = 0;
+    import.size = 1;
     import.reserved1 = 0;
     import.reserved2 = 0;
     import.reserved3 = 0;
@@ -370,6 +199,39 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     memcpy(output_buffer + current_offset, &entry, sizeof(entry));
     current_offset += sizeof(entry);
 
+    size_t symtab_offset = current_offset;
+    symtab_command symtab;
+    symtab.cmd = LC_SYMTAB;
+    symtab.cmdsize = sizeof(symtab);
+    symtab.nsyms = 1;
+    symtab.symoff = 0;
+    symtab.stroff = 0;
+    symtab.strsize = strlen("_main") + 2;
+    memcpy(output_buffer + current_offset, &symtab, sizeof(symtab));
+    current_offset += sizeof(symtab);
+    total_cmd_size += symtab.cmdsize;
+
+    dysymtab_command dysymtab;
+    memset(&dysymtab, 0, sizeof(dysymtab));
+    dysymtab.cmd = LC_DYSYMTAB;
+    dysymtab.cmdsize = sizeof(dysymtab);
+    dysymtab.nextdefsym = 1;
+    dysymtab.iundefsym = dysymtab.iextdefsym + dysymtab.nextdefsym;
+    memcpy(output_buffer + current_offset, &dysymtab, sizeof(dysymtab));
+    current_offset += sizeof(dysymtab);
+    total_cmd_size += dysymtab.cmdsize;
+
+    build_version_command build_version;
+    build_version.cmd = LC_BUILD_VERSION;
+    build_version.cmdsize = sizeof(build_version);
+    build_version.minos = (15 << 16);
+    build_version.platform = PLATFORM_MACOS;
+    build_version.sdk = 0;
+    build_version.ntools = 0;
+    memcpy(output_buffer + current_offset, &build_version, sizeof(build_version));
+    current_offset += sizeof(build_version);
+    total_cmd_size += build_version.cmdsize;
+
     memcpy(output_buffer + teb_fileoff, &teb, sizeof(teb));
     memcpy(output_buffer + custom_entry_fileoff, entry_code, sizeof(entry_code));
     memcpy(output_buffer + dos_and_pe_headers_fileoff, parser.dos_header, sizeof(*parser.dos_header));
@@ -388,18 +250,105 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
         printf("section: %s\n", section->Name);
         printf("\twriting %zu bytes to: %p\n", data.size(), output_buffer + section->VirtualAddress);
         memcpy(output_buffer + section->VirtualAddress, data.data(), data.size());
+        current_offset = std::max(current_offset, section->VirtualAddress + data.size());
     }
+    current_offset = ROUND_UP(current_offset, 0x10);
+    ((segment_command_64*)(output_buffer + text_offset))->filesize = current_offset;
+    ((symtab_command*)(output_buffer + symtab_offset))->symoff = current_offset;
+    nlist_64 main_symbol;
+    main_symbol.n_un.n_strx = 1;
+    main_symbol.n_type = N_SECT | N_EXT;
+    main_symbol.n_sect = 4;
+    main_symbol.n_desc = 0;
+    main_symbol.n_value = entry.addr;
+    memcpy(output_buffer + current_offset, &main_symbol, sizeof(main_symbol));
+    current_offset += sizeof(main_symbol);
+    ((symtab_command*)(output_buffer + symtab_offset))->stroff = current_offset;
+    memcpy(output_buffer + current_offset, "\0_main", sizeof("\0_main"));
 
     std::cout << "total_cmd_size: " << total_cmd_size << '\n';
     memcpy(output_buffer + ((uintptr_t)(&(hdr.sizeofcmds)) - (uintptr_t)(&hdr)), &total_cmd_size, sizeof(total_cmd_size));
 
     std::cout << "real entry fileoff: " << std::hex << real_entry_fileoff << std::dec << '\n';
-
-    main.entryoff = custom_entry_fileoff;
-    memcpy(output_buffer + main_offset + ((uintptr_t)&(main.entryoff) - (uintptr_t)&main), &main.entryoff, sizeof(main.entryoff));
     
     std::ofstream out_stream(out_path, std::ios::binary);
     out_stream.write(output_buffer, buffer_size);
+
+    std::stringstream link_command_stream;
+    link_command_stream << "ld " << out_path << " -o " << out_path << " -no_pie "
+                             << "-L$(xcrun --show-sdk-path)/usr/lib/ -lSystem "
+                             << "-Ldlls/kernel32/ -lkernel32 "
+                             << "-segaddr __TEXT " << std::hex << parser.nt_header->OptionalHeader.ImageBase << std::dec << " "
+                             << "-segprot __TEXT rwx rwx";
+
+     std::set<std::string> loaded_dylibs;
+
+    for (auto& [dll, _] : parser.import_map)
+    {
+        if (strcasecmp(dll.c_str(), "kernel32.dll") == 0)
+            continue;
+        std::string name_without_extension = dll.substr(0, dll.size() - 4).c_str();
+        if (name_without_extension.find("api-ms-win-crt") != std::string::npos)
+        {
+            name_without_extension = "msvcrt";
+        }
+
+        std::transform(name_without_extension.begin(), name_without_extension.end(), name_without_extension.begin(),
+            [](unsigned char c){ return std::tolower(c); });
+
+        std::string dylib_name = name_without_extension + ".dylib";
+
+        if (dylib_name.find("lib") != 0)
+            dylib_name = std::string("lib") + dylib_name;
+
+        if (loaded_dylibs.find(name_without_extension) != loaded_dylibs.end())
+            continue;
+        
+        std::ifstream presence_test(std::string("dlls/") + name_without_extension + std::string("/") + dylib_name);
+        if (presence_test)
+        {
+            presence_test.close();
+            // TODO: pass shared libraries to `ld`
+
+            // dylib_command dyl;
+            // dyl.cmd = LC_LOAD_DYLIB;
+            // dyl.dylib.compatibility_version = 65536;
+            // dyl.dylib.current_version = 87556096;
+            // dyl.dylib.timestamp = 2;
+
+            // std::string dyl_name_str = std::string("@executable_path/dlls/") + name_without_extension + std::string("/") + dylib_name;
+            // char dyl_name[dyl_name_str.size() + 1];
+            // memcpy(dyl_name, dyl_name_str.data(), dyl_name_str.size());
+            // dyl_name[dyl_name_str.size()] = '\0';
+
+            // dyl.dylib.name.offset = sizeof(dyl);
+            // dyl.cmdsize = ROUND_UP(sizeof(dyl) + sizeof(dyl_name), 0x10);
+            // std::cout << "dyl.cmdsize: " << dyl.cmdsize << ", " << ROUND_UP(dyl.cmdsize, 0x10) << '\n';
+
+            // memcpy(output_buffer + current_offset, &dyl, sizeof(dyl));
+            // current_offset += sizeof(dyl);
+            // memcpy(output_buffer + current_offset, dyl_name, sizeof(dyl_name));
+            // current_offset += (dyl.cmdsize - sizeof(dyl));
+            // total_cmd_size += dyl.cmdsize;
+
+            // reinterpret_cast<mach_header_64*>(output_buffer)->ncmds++;
+            // loaded_dylibs.insert(dylib_name);
+        }
+        else
+        {
+            printf("warning: could not find '%s'; this will likely cause a crash.\n", dylib_name.c_str());
+            printf(" Continue anyway? (y/[n]) ");
+            char ans = getchar();
+            if (tolower(ans) != 'y')
+            {
+                printf("Exiting.\n");
+                std::exit(1);
+            }
+        }
+    }
+
+
+    system(link_command_stream.str().c_str());
 
     std::cout << "wrote to " << out_path << '\n';
     delete[] output_buffer;
