@@ -153,6 +153,13 @@ class EXE_Parser64
             {
                 std::vector<char> data(file_buffer + section_header->PointerToRawData,
                                        file_buffer + section_header->PointerToRawData + std::min(section_header->Misc.VirtualSize, section_header->SizeOfRawData));
+                if (section_header->Misc.VirtualSize > section_header->SizeOfRawData)
+                {
+                    for (size_t i = 0; i < section_header->Misc.VirtualSize - section_header->SizeOfRawData; ++i)
+                    {
+                        data.push_back('\0');
+                    }
+                }
                 section_data[section_header] = data;
                 sections.push_back(section_header);
                 printf("%s:\n", section_header->Name);

@@ -607,16 +607,10 @@ __attribute__((constructor)) void start(int argc, char** argv, char** env)
     #undef IMPORT_ENTRY
     #undef PTR
 
-    const struct section_64* base_cmd = getsectbyname("__TEXT", "__base");
-    if (!base_cmd)
+    const struct section_64* header_cmd = getsectbyname("__TEXT", "___header");
+    if (!header_cmd)
     {
-        printf("msvcrt error: could not find section __base, exiting\n");
-        std::exit(1);
-    }
-    const struct section_64* import_cmd = getsectbyname("__TEXT", "__import");
-    if (!import_cmd)
-    {
-        printf("msvcrt error: could not find section __import, exiting\n");
+        printf("kernel32 error: could not find section ___header, exiting\n");
         std::exit(1);
     }
 
@@ -628,14 +622,12 @@ __attribute__((constructor)) void start(int argc, char** argv, char** env)
     _dyld_get_image_name(exe_image_index),
     exe_slide);
 
-    if (exe_base - exe_slide != base_cmd->addr)
-    {
-        printf("msvcrt error: image %d does not match the current image (%lx vs %llx)\n", exe_image_index, exe_base - exe_slide, base_cmd->addr);
-        std::exit(1);
-    }
+    IMAGE_DOS_HEADER* dos_header = (IMAGE_DOS_HEADER*)header_cmd->addr;
+    __IMAGE_NT_HEADERS64* nt_header = (__IMAGE_NT_HEADERS64*)(header_cmd->addr + dos_header->e_lfanew);
+    uintptr_t import_addr = exe_base + nt_header->OptionalHeader.DataDirectory[___IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
 
     printf("msvcrt: parsing imports\n");
-    for (IMAGE_IMPORT_DESCRIPTOR* import_descriptor = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(import_cmd->addr + exe_slide);
+    for (IMAGE_IMPORT_DESCRIPTOR* import_descriptor = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(import_addr + exe_slide);
     import_descriptor->OriginalFirstThunk != 0; import_descriptor++)
     {
         std::string dll_name = reinterpret_cast<char*>(exe_base + import_descriptor->Name);
