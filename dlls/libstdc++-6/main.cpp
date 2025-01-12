@@ -487,22 +487,10 @@ void __attribute__((constructor)) start()
     };
     #undef IMPORT_ENTRY
 
-    const struct section_64* base_cmd = getsectbyname("__TEXT", "__base");
-    if (!base_cmd)
-    {
-        printf("libstdc++-6 error: could not find section __base, exiting\n");
-        std::exit(1);
-    }
-    const struct section_64* import_cmd = getsectbyname("__TEXT", "__import");
-    if (!import_cmd)
-    {
-        printf("libstdc++-6 error: could not find section __import, exiting\n");
-        std::exit(1);
-    }
-    const struct section_64* header_cmd = getsectbyname("__TEXT", "__header");
+    const struct section_64* header_cmd = getsectbyname("__TEXT", "___header");
     if (!header_cmd)
     {
-        printf("user32 error: could not find section __header, exiting\n");
+        printf("user32 error: could not find section ___header, exiting\n");
         std::exit(1);
     }
 
@@ -514,8 +502,12 @@ void __attribute__((constructor)) start()
     _dyld_get_image_name(exe_image_index),
     exe_slide);
 
+    IMAGE_DOS_HEADER* dos_header = (IMAGE_DOS_HEADER*)header_cmd->addr;
+    __IMAGE_NT_HEADERS64* nt_header = (__IMAGE_NT_HEADERS64*)(header_cmd->addr + dos_header->e_lfanew);
+    uintptr_t import_addr = exe_base + nt_header->OptionalHeader.DataDirectory[___IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
+
     printf("libstdc++-6: parsing imports\n");
-    for (IMAGE_IMPORT_DESCRIPTOR* import_descriptor = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(import_cmd->addr + exe_slide);
+    for (IMAGE_IMPORT_DESCRIPTOR* import_descriptor = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(import_addr + exe_slide);
     import_descriptor->OriginalFirstThunk != 0; import_descriptor++)
     {
         std::string dll_name = reinterpret_cast<char*>(exe_base + import_descriptor->Name);

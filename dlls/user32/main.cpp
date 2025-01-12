@@ -152,7 +152,7 @@ EXPORT __attribute__((naked)) void GetKeyboardState()
 }
 
 const struct section_64* header_cmd = nullptr;
-const struct section_64* base_cmd = nullptr;
+uintptr_t exe_base = 0;
 
 SHORT GetAsyncKeyState_impl(int vKey)
 {
@@ -160,9 +160,9 @@ SHORT GetAsyncKeyState_impl(int vKey)
     {
         // Hack: calling CGEventSourceKeyState crashes if the mach header isn't loaded,
         // so we ensure that it is loaded here
-        if (*(uint32_t*)(base_cmd->addr) != MH_MAGIC_64)
+        if (*(uint32_t*)(exe_base) != MH_MAGIC_64)
         {
-            memcpy((void*)base_cmd->addr, (const void*)header_cmd->addr, header_cmd->size);
+            memcpy((void*)exe_base, (const void*)header_cmd->addr, header_cmd->size);
         }
 
         SHORT result = 0x8000 * CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, vk[vKey]);
@@ -189,41 +189,27 @@ __attribute__((constructor)) void start()
     };
     #undef IMPORT_ENTRY
 
-    base_cmd = getsectbyname("__TEXT", "__base");
-    if (!base_cmd)
-    {
-        printf("user32 error: could not find section __base, exiting\n");
-        std::exit(1);
-    }
-    const struct section_64* import_cmd = getsectbyname("__TEXT", "__import");
-    if (!import_cmd)
-    {
-        printf("user32 error: could not find section __import, exiting\n");
-        std::exit(1);
-    }
-    header_cmd = getsectbyname("__TEXT", "__header");
+    header_cmd = getsectbyname("__TEXT", "___header");
     if (!header_cmd)
     {
-        printf("user32 error: could not find section __header, exiting\n");
+        printf("user32 error: could not find section ___header, exiting\n");
         std::exit(1);
     }
     
     constexpr int exe_image_index = 0;
-    uintptr_t exe_base = reinterpret_cast<uintptr_t>(_dyld_get_image_header(exe_image_index));
+    exe_base = reinterpret_cast<uintptr_t>(_dyld_get_image_header(exe_image_index));
     uintptr_t exe_slide = _dyld_get_image_vmaddr_slide(exe_image_index);
     printf ("image %d: %p\t%s\t(slide = 0x%lx)\n", exe_image_index,
     reinterpret_cast<void*>(exe_base),
     _dyld_get_image_name(exe_image_index),
     exe_slide);
 
-    if (exe_base - exe_slide != base_cmd->addr)
-    {
-        printf("user32 error: image %d does not match the current image (%lx vs %llx)\n", exe_image_index, exe_base - exe_slide, base_cmd->addr);
-        std::exit(1);
-    }
+    IMAGE_DOS_HEADER* dos_header = (IMAGE_DOS_HEADER*)header_cmd->addr;
+    __IMAGE_NT_HEADERS64* nt_header = (__IMAGE_NT_HEADERS64*)(header_cmd->addr + dos_header->e_lfanew);
+    uintptr_t import_addr = exe_base + nt_header->OptionalHeader.DataDirectory[___IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
 
     printf("user32: parsing imports\n");
-    for (IMAGE_IMPORT_DESCRIPTOR* import_descriptor = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(import_cmd->addr + exe_slide);
+    for (IMAGE_IMPORT_DESCRIPTOR* import_descriptor = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(import_addr + exe_slide);
     import_descriptor->OriginalFirstThunk != 0; import_descriptor++)
     {
         std::string dll_name = reinterpret_cast<char*>(exe_base + import_descriptor->Name);

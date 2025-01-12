@@ -554,28 +554,16 @@ __attribute__((constructor)) void start()
     };
     #undef IMPORT_ENTRY
 
-    const struct section_64* base_cmd = getsectbyname("__TEXT", "__base");
-    if (!base_cmd)
-    {
-        printf("kernel32 error: could not find section __base, exiting\n");
-        std::exit(1);
-    }
-    const struct section_64* import_cmd = getsectbyname("__TEXT", "__import");
-    if (!import_cmd)
-    {
-        printf("kernel32 error: could not find section __import, exiting\n");
-        std::exit(1);
-    }
-    const struct section_64* header_cmd = getsectbyname("__TEXT", "__header");
+    const struct section_64* header_cmd = getsectbyname("__TEXT", "___header");
     if (!header_cmd)
     {
-        printf("kernel32 error: could not find section __header, exiting\n");
+        printf("kernel32 error: could not find section ___header, exiting\n");
         std::exit(1);
     }
-    const struct section_64* entry_cmd = getsectbyname("__TEXT", "__entry");
+    const struct section_64* entry_cmd = getsectbyname("__TEXT", "___entry");
     if (!entry_cmd)
     {
-        printf("kernel32 error: could not find section __entry, exiting\n");
+        printf("kernel32 error: could not find section ___entry, exiting\n");
         std::exit(1);
     }
 
@@ -597,15 +585,14 @@ __attribute__((constructor)) void start()
     _dyld_get_image_name(exe_image_index),
     exe_slide);
 
-    if (exe_base - exe_slide != base_cmd->addr)
-    {
-        printf("kernel32 error: image %d does not match the current image (%lx vs %llx)\n", exe_image_index, exe_base - exe_slide, base_cmd->addr);
-        std::exit(1);
-    }
+    IMAGE_DOS_HEADER* dos_header = (IMAGE_DOS_HEADER*)header_addr;
+    __IMAGE_NT_HEADERS64* nt_header = (__IMAGE_NT_HEADERS64*)(header_addr + dos_header->e_lfanew);
+    uintptr_t import_addr = exe_base + nt_header->OptionalHeader.DataDirectory[___IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
 
-    printf("kernel32: __base vmaddr: 0x%llx, size = 0x%llx\n", base_cmd->addr, base_cmd->size);
     printf("kernel32: parsing imports\n");
-    for (IMAGE_IMPORT_DESCRIPTOR* import_descriptor = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(import_cmd->addr + exe_slide);
+    printf(" import_addr %lx\n", import_addr);
+
+    for (IMAGE_IMPORT_DESCRIPTOR* import_descriptor = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(import_addr + exe_slide);
     import_descriptor->OriginalFirstThunk != 0; import_descriptor++)
     {
         std::string dll_name = reinterpret_cast<char*>(exe_base + import_descriptor->Name);
