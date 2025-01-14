@@ -263,7 +263,7 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
         if (loaded_dylibs.find(name_without_extension) != loaded_dylibs.end())
             continue;
         
-        std::ifstream presence_test(std::string("dlls/") + name_without_extension + std::string("/") + dylib_name);
+        std::ifstream presence_test(dylib_name);
         if (presence_test)
         {
             presence_test.close();
@@ -289,7 +289,8 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
     std::stringstream link_command_stream;
     link_command_stream << "ld " << out_path << ".o -o " << out_path << " -no_pie "
                              << "-L$(xcrun --show-sdk-path)/usr/lib/ -lSystem "
-                             << "-Ldlls/kernel32/ -lkernel32 "
+                             << "-L./ -rpath @executable_path/ "
+                             << "-lkernel32 "
                              << "-segaddr __TEXT " << std::hex << parser.nt_header->OptionalHeader.ImageBase << std::dec << " "
                              << "-segprot __TEXT rwx rwx ";
     for (const std::string& dylib : loaded_dylibs)
@@ -299,11 +300,27 @@ inline void output_macho_file(const std::string& out_path, const EXE_Parser64& p
         {
             dylib_link_name = dylib.substr(3);
         }
-        link_command_stream << "-Ldlls/" << dylib << "/ -l" << dylib_link_name << " ";
+        link_command_stream <<  "-l" << dylib_link_name << " ";
     }
 
     std::cout << link_command_stream.str() << '\n';
     system(link_command_stream.str().c_str());
+
+    std::string post_link_command = "install_name_tool -change build/libkernel32.dylib @executable_path/libkernel32.dylib " + out_path;
+    std::cout << post_link_command << '\n';
+    system(post_link_command.c_str());
+
+    for (const std::string& dylib : loaded_dylibs)
+    {
+        std::string dylib_name = dylib + ".dylib";
+        if (dylib.find("lib") != 0)
+        {
+            dylib_name = "lib" + dylib_name;
+        }
+        post_link_command = "install_name_tool -change build/" + dylib_name + " @executable_path/" + dylib_name + " " + out_path;
+        std::cout << post_link_command << '\n';
+        system(post_link_command.c_str());
+    }
 
     std::cout << "wrote to " << out_path << '\n';
 }
