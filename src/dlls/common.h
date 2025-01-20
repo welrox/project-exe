@@ -60,7 +60,7 @@ inline void patch_dll_imports(const char* dll_name, const std::map<std::string, 
     import_descriptor->OriginalFirstThunk != 0; import_descriptor++)
     {
         std::string import_dll_name = reinterpret_cast<char*>(exe_base + import_descriptor->Name);
-        if (strcasecmp(import_dll_name.c_str(), "%s") != 0)
+        if (strcasecmp(import_dll_name.c_str(), dll_name) != 0)
             continue;
 
         for (uintptr_t* thunk = reinterpret_cast<uintptr_t*>(exe_base + import_descriptor->FirstThunk);
