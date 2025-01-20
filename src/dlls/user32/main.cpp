@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <Carbon/Carbon.h>
+#include "../common.h"
 #include "../../pe.h"
 #include "../../vkeycodes.h"
 #include "../asm.h"
@@ -151,7 +152,7 @@ EXPORT __attribute__((naked)) void GetKeyboardState()
     asm("retq\n");
 }
 
-const struct section_64* header_cmd = nullptr;
+section_64 header_cmd;
 uintptr_t exe_base = 0;
 
 SHORT GetAsyncKeyState_impl(int vKey)
@@ -162,9 +163,8 @@ SHORT GetAsyncKeyState_impl(int vKey)
         // so we ensure that it is loaded here
         if (*(uint32_t*)(exe_base) != MH_MAGIC_64)
         {
-            memcpy((void*)exe_base, (const void*)header_cmd->addr, header_cmd->size);
+            memcpy((void*)exe_base, (const void*)header_cmd.addr, header_cmd.size);
         }
-
         SHORT result = 0x8000 * CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, vk[vKey]);
         return result;
     }
@@ -189,59 +189,7 @@ __attribute__((constructor)) void start()
     };
     #undef IMPORT_ENTRY
 
-    header_cmd = getsectbyname("__TEXT", "___header");
-    if (!header_cmd)
-    {
-        printf("user32 error: could not find section ___header, exiting\n");
-        std::exit(1);
-    }
-    
     constexpr int exe_image_index = 0;
+    patch_dll_imports("user32.dll", import_name_to_fn, &header_cmd, nullptr);
     exe_base = reinterpret_cast<uintptr_t>(_dyld_get_image_header(exe_image_index));
-    uintptr_t exe_slide = _dyld_get_image_vmaddr_slide(exe_image_index);
-    printf ("image %d: %p\t%s\t(slide = 0x%lx)\n", exe_image_index,
-    reinterpret_cast<void*>(exe_base),
-    _dyld_get_image_name(exe_image_index),
-    exe_slide);
-
-    IMAGE_DOS_HEADER* dos_header = (IMAGE_DOS_HEADER*)header_cmd->addr;
-    __IMAGE_NT_HEADERS64* nt_header = (__IMAGE_NT_HEADERS64*)(header_cmd->addr + dos_header->e_lfanew);
-    uintptr_t import_addr = exe_base + nt_header->OptionalHeader.DataDirectory[___IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
-
-    printf("user32: parsing imports\n");
-    for (IMAGE_IMPORT_DESCRIPTOR* import_descriptor = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(import_addr + exe_slide);
-    import_descriptor->OriginalFirstThunk != 0; import_descriptor++)
-    {
-        std::string dll_name = reinterpret_cast<char*>(exe_base + import_descriptor->Name);
-        if (strcasecmp(dll_name.c_str(), "user32.dll") != 0)
-            continue;
-
-        for (uintptr_t* thunk = reinterpret_cast<uintptr_t*>(exe_base + import_descriptor->FirstThunk);
-        *thunk != 0; thunk++)
-        {
-            uintptr_t thunk_val = *thunk;
-            if (thunk_val & (1ull << 63))
-            {
-                std::cerr << "Warning: Ordinal detected! ignoring...\n";
-            }
-            else
-            {
-                IMAGE_IMPORT_BY_NAME* hint_name = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(exe_base + thunk_val);
-                std::string import_fn_name = reinterpret_cast<char*>(hint_name->Name);
-                if (import_name_to_fn.find(import_fn_name) != import_name_to_fn.end())
-                {
-                    uintptr_t fn = import_name_to_fn.at(import_fn_name);
-                    *thunk = fn;
-                    printf("Fixed %s import (%lx)\n", import_fn_name.c_str(), *thunk);
-                }
-                else
-                {
-                    printf("user32: warning: unimplemented function %s\n", import_fn_name.c_str());
-                    *thunk = reinterpret_cast<uintptr_t>(unimplemented_fn);
-                }
-            }
-        }
-    }
-
-    printf("user32: DONE!\n");
 }
