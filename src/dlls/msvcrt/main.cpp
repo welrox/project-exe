@@ -7,6 +7,7 @@
 #include <sys/mman.h>
 #include <sys/file.h>
 #include <sys/ioctl.h>
+#include "../common.h"
 #include "../../pe.h"
 #include "../asm.h"
 #define EXPORT extern "C" __attribute__((visibility("default")))
@@ -607,59 +608,6 @@ __attribute__((constructor)) void start(int argc, char** argv, char** env)
     #undef IMPORT_ENTRY
     #undef PTR
 
-    const struct section_64* header_cmd = getsectbyname("__TEXT", "___header");
-    if (!header_cmd)
-    {
-        printf("kernel32 error: could not find section ___header, exiting\n");
-        std::exit(1);
-    }
-
-    constexpr int exe_image_index = 0;
-    uintptr_t exe_base = reinterpret_cast<uintptr_t>(_dyld_get_image_header(exe_image_index));
-    uintptr_t exe_slide = _dyld_get_image_vmaddr_slide(exe_image_index);
-    printf ("image %d: %p\t%s\t(slide = 0x%lx)\n", exe_image_index,
-    reinterpret_cast<void*>(exe_base),
-    _dyld_get_image_name(exe_image_index),
-    exe_slide);
-
-    IMAGE_DOS_HEADER* dos_header = (IMAGE_DOS_HEADER*)header_cmd->addr;
-    __IMAGE_NT_HEADERS64* nt_header = (__IMAGE_NT_HEADERS64*)(header_cmd->addr + dos_header->e_lfanew);
-    uintptr_t import_addr = exe_base + nt_header->OptionalHeader.DataDirectory[___IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
-
-    printf("msvcrt: parsing imports\n");
-    for (IMAGE_IMPORT_DESCRIPTOR* import_descriptor = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(import_addr + exe_slide);
-    import_descriptor->OriginalFirstThunk != 0; import_descriptor++)
-    {
-        std::string dll_name = reinterpret_cast<char*>(exe_base + import_descriptor->Name);
-        if (strcasecmp(dll_name.c_str(), "msvcrt.dll") != 0 && dll_name.find("api-ms-win-crt") == std::string::npos)
-            continue;
-
-        for (uintptr_t* thunk = reinterpret_cast<uintptr_t*>(exe_base + import_descriptor->FirstThunk);
-        *thunk != 0; thunk++)
-        {
-            uintptr_t thunk_val = *thunk;
-            if (thunk_val & (1ull << 63))
-            {
-                std::cerr << "Warning: Ordinal detected! ignoring...\n";
-            }
-            else
-            {
-                IMAGE_IMPORT_BY_NAME* hint_name = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(exe_base + thunk_val);
-                std::string import_fn_name = reinterpret_cast<char*>(hint_name->Name);
-                if (import_name_to_fn.find(import_fn_name) != import_name_to_fn.end())
-                {
-                    uintptr_t fn = import_name_to_fn.at(import_fn_name);
-                    *thunk = fn;
-                    printf("Fixed %s import (%lx)\n", import_fn_name.c_str(), *thunk);
-                }
-                else
-                {
-                    printf("msvcrt: warning: unimplemented function %s\n", import_fn_name.c_str());
-                    *thunk = reinterpret_cast<uintptr_t>(unimplemented);
-                }
-            }
-        }
-    }
-
-    printf("msvcrt DONE!\n");
+    patch_dll_imports("msvcrt", import_name_to_fn);
+    patch_dll_imports("api-ms-win-crt", import_name_to_fn);
 }
