@@ -12,8 +12,6 @@
 // a particular dll, and substitutes them with its own
 // functions according to `import_name_to_fn`
 inline void patch_dll_imports(const char* dll_name, const std::map<std::string, uintptr_t> import_name_to_fn, section_64* header_cmd_pointer = nullptr, section_64* entry_cmd_pointer = nullptr) {
-    printf("%s entry\n", dll_name);
-
     const struct section_64* header_cmd = getsectbyname("__TEXT", "___header");
     if (!header_cmd)
     {
