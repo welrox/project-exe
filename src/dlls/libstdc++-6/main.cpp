@@ -17,7 +17,6 @@
 #include <sys/mman.h>
 #include "../common.h"
 #include "../../pe.h"
-#include "../asm.h"
 #define EXPORT extern "C" __attribute__((visibility("default")))
 
 EXPORT std::ostream& _ZSt4cout = std::cout;

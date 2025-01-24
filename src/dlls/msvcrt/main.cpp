@@ -9,7 +9,6 @@
 #include <sys/ioctl.h>
 #include "../common.h"
 #include "../../pe.h"
-#include "../asm.h"
 #define EXPORT extern "C" __attribute__((visibility("default")))
 
 typedef void (*PVFV)();

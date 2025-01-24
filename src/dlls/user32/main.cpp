@@ -15,7 +15,6 @@
 #include "../common.h"
 #include "../../pe.h"
 #include "../../vkeycodes.h"
-#include "../asm.h"
 #define EXPORT extern "C" __attribute__((visibility("default")))
 
 std::map<int, int> vk = {

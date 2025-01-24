@@ -15,7 +15,6 @@
 #include <sys/mman.h>
 #include "../common.h"
 #include "../../pe.h"
-#include "../asm.h"
 #include "../cp437.h"
 #define EXPORT extern "C" __attribute__((visibility("default")))
 
